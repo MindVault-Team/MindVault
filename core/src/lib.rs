@@ -1125,8 +1125,12 @@ fn llm_chat(
     };
 
     let client = llm::client::UniversalClient::new(parsed_provider, endpoint, model);
+    let messages = [llm::client::LlmMessage {
+        role: "user".to_string(),
+        content: user_prompt,
+    }];
     into_ipc(tauri::async_runtime::block_on(
-        llm::client::LlmClient::complete(&client, &system_prompt_from_assembler, &user_prompt),
+        llm::client::LlmClient::complete(&client, &system_prompt_from_assembler, &messages),
     ))
 }
 

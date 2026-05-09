@@ -1,5 +1,11 @@
 use async_trait::async_trait;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LlmMessage {
+    pub role: String,
+    pub content: String,
+}
 
 #[async_trait]
 pub trait LlmClient {
@@ -7,7 +13,7 @@ pub trait LlmClient {
     async fn complete(
         &self,
         system_prompt: &str,
-        user_prompt: &str,
+        messages: &[LlmMessage],
     ) -> Result<String, crate::AppError>;
 }
 
@@ -46,17 +52,27 @@ struct OllamaModel {
     name: String,
 }
 
-#[derive(Deserialize)]
-struct OllamaGenerateResponse {
-    response: String,
+#[derive(Serialize)]
+struct OllamaChatRequest {
+    model: String,
+    messages: Vec<OllamaChatApiMessage>,
+    stream: bool,
 }
 
-#[derive(serde::Serialize)]
-struct OllamaGenerateRequest<'a> {
-    model: &'a str,
-    system: &'a str,
-    prompt: &'a str,
-    stream: bool,
+#[derive(Serialize)]
+struct OllamaChatApiMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Deserialize)]
+struct OllamaChatResponse {
+    message: OllamaChatResponseMessage,
+}
+
+#[derive(Deserialize)]
+struct OllamaChatResponseMessage {
+    content: String,
 }
 
 #[derive(Deserialize)]
@@ -69,17 +85,17 @@ struct LmStudioModel {
     id: String,
 }
 
-#[derive(serde::Serialize)]
-struct LmStudioChatRequest<'a> {
-    model: &'a str,
-    messages: [LmStudioMessage<'a>; 2],
+#[derive(Serialize)]
+struct LmStudioChatRequest {
+    model: String,
+    messages: Vec<LmStudioPayloadMessage>,
     stream: bool,
 }
 
-#[derive(serde::Serialize)]
-struct LmStudioMessage<'a> {
-    role: &'a str,
-    content: &'a str,
+#[derive(Serialize)]
+struct LmStudioPayloadMessage {
+    role: String,
+    content: String,
 }
 
 #[derive(Deserialize)]
@@ -154,16 +170,26 @@ impl LlmClient for UniversalClient {
     async fn complete(
         &self,
         system_prompt: &str,
-        user_prompt: &str,
+        messages: &[LlmMessage],
     ) -> Result<String, crate::AppError> {
         let http = reqwest::Client::new();
         match self.provider {
             LlmProvider::Ollama => {
-                let url = format!("{}/api/generate", self.normalized_endpoint());
-                let payload = OllamaGenerateRequest {
-                    model: &self.model,
-                    system: system_prompt,
-                    prompt: user_prompt,
+                let url = format!("{}/api/chat", self.normalized_endpoint());
+                let mut ollama_messages = Vec::with_capacity(messages.len().saturating_add(1));
+                ollama_messages.push(OllamaChatApiMessage {
+                    role: "system".to_string(),
+                    content: system_prompt.to_string(),
+                });
+                for msg in messages {
+                    ollama_messages.push(OllamaChatApiMessage {
+                        role: msg.role.clone(),
+                        content: msg.content.clone(),
+                    });
+                }
+                let payload = OllamaChatRequest {
+                    model: self.model.clone(),
+                    messages: ollama_messages,
                     stream: false,
                 };
 
@@ -172,36 +198,39 @@ impl LlmClient for UniversalClient {
                     .json(&payload)
                     .send()
                     .await
-                    .map_err(|err| format!("Failed calling Ollama generate endpoint: {err}"))?;
+                    .map_err(|err| format!("Failed calling Ollama chat endpoint: {err}"))?;
 
                 let status = response.status();
                 if !status.is_success() {
-                    let body = response.text().await.map_err(|err| {
-                        format!("Failed reading Ollama generate error body: {err}")
-                    })?;
-                    return Err(format!("Ollama generate request failed ({status}): {body}"));
+                    let body = response
+                        .text()
+                        .await
+                        .map_err(|err| format!("Failed reading Ollama chat error body: {err}"))?;
+                    return Err(format!("Ollama chat request failed ({status}): {body}"));
                 }
 
-                let parsed: OllamaGenerateResponse = response
+                let parsed: OllamaChatResponse = response
                     .json()
                     .await
-                    .map_err(|err| format!("Failed parsing Ollama generate response: {err}"))?;
-                Ok(parsed.response)
+                    .map_err(|err| format!("Failed parsing Ollama chat response: {err}"))?;
+                Ok(parsed.message.content)
             }
             LlmProvider::LmStudio => {
                 let url = format!("{}/v1/chat/completions", self.normalized_endpoint());
+                let mut openai_messages = Vec::with_capacity(messages.len().saturating_add(1));
+                openai_messages.push(LmStudioPayloadMessage {
+                    role: "system".to_string(),
+                    content: system_prompt.to_string(),
+                });
+                for msg in messages {
+                    openai_messages.push(LmStudioPayloadMessage {
+                        role: msg.role.clone(),
+                        content: msg.content.clone(),
+                    });
+                }
                 let payload = LmStudioChatRequest {
-                    model: &self.model,
-                    messages: [
-                        LmStudioMessage {
-                            role: "system",
-                            content: system_prompt,
-                        },
-                        LmStudioMessage {
-                            role: "user",
-                            content: user_prompt,
-                        },
-                    ],
+                    model: self.model.clone(),
+                    messages: openai_messages,
                     stream: false,
                 };
 
