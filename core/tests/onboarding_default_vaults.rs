@@ -95,7 +95,12 @@ fn onboarding_default_vaults_exist_and_support_node_foreign_keys() {
 
     let inserted = match conn.execute(
         "INSERT INTO nodes (id, vault_id, title, summary) VALUES (?1, ?2, ?3, ?4);",
-        params!["node_onboarding_smoke", "vault_personal", "Onboarding Test", "FK target exists"],
+        params![
+            "node_onboarding_smoke",
+            "vault_personal",
+            "Onboarding Test",
+            "FK target exists"
+        ],
     ) {
         Ok(value) => value,
         Err(err) => panic!("failed inserting node into onboarding vault: {err}"),
