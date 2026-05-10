@@ -6,6 +6,7 @@ import type {
   Node,
   NodeCreateInput,
   NodeUpdateInput,
+  OnboardingProposedNode,
   Tag,
   TagCreateInput,
   Vault,
@@ -27,6 +28,7 @@ export type {
   Node,
   NodeCreateInput,
   NodeUpdateInput,
+  OnboardingProposedNode,
   Tag,
   TagCreateInput,
   Vault,
@@ -215,4 +217,21 @@ export function chatWithLlm(
   })
     .then((ok) => ({ ok }) as IpcResult<string>)
     .catch((error) => ({ err: String(error) }) as IpcResult<string>);
+}
+
+/** One-shot onboarding extraction: Q&A JSON → proposed nodes (calls configured LLM). */
+export function onboardingExtractProposals(
+  answersJson: string,
+  provider: string,
+  endpoint: string,
+  model: string
+) {
+  return invoke<OnboardingProposedNode[]>("onboarding_extract_proposals", {
+    answersJson,
+    provider,
+    endpoint,
+    model,
+  })
+    .then((ok) => ({ ok }) as IpcResult<OnboardingProposedNode[]>)
+    .catch((error) => ({ err: String(error) }) as IpcResult<OnboardingProposedNode[]>);
 }

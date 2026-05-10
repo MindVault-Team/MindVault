@@ -186,6 +186,25 @@ pub struct DoorCreateInput {
     pub label: Option<String>,
 }
 
+/// Serialized onboarding extraction result for IPC / TypeScript (mirrors `onboarding::ProposedNode`).
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../ui/types/generated/")]
+pub struct OnboardingProposedNode {
+    pub title: String,
+    pub summary: String,
+    #[ts(optional)]
+    pub detail: Option<String>,
+    #[ts(optional)]
+    pub category: Option<String>,
+    #[ts(optional)]
+    pub target_vault_key: Option<String>,
+    #[ts(optional)]
+    pub tags: Option<Vec<String>>,
+    #[ts(optional)]
+    pub node_type: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../ui/types/generated/")]
@@ -235,6 +254,9 @@ mod tests {
         }
         if let Err(err) = Backlink::export() {
             panic!("failed to export Backlink: {err}");
+        }
+        if let Err(err) = OnboardingProposedNode::export() {
+            panic!("failed to export OnboardingProposedNode: {err}");
         }
     }
 }

@@ -7,18 +7,18 @@ type OnboardingShellProps = {
   errorMessage: string | null;
 };
 
-const STEPS = ["Interview", "AI Import", "Review", "Done"] as const;
+const STEPS = ["Basics", "LLM setup", "Review", "Done"] as const;
 
 function stepDescription(step: number): string {
   switch (step) {
     case 0:
-      return "Interview step placeholder: we will run a guided multi-turn interview to capture core context.";
+      return "Basics placeholder: a short fixed Q&A (who you are, what you use MindVault for, interests, work context). No chat interview — just answers in simple fields.";
     case 1:
-      return "AI Import step placeholder: paste transfer output and parse it into structured candidate nodes.";
+      return "LLM setup placeholder: choose provider (Ollama / LM Studio), endpoint, and model — same settings the app uses later. Required before the bundled Onboarding Agent can extract Nodes from your answers.";
     case 2:
-      return "Review step placeholder: inspect, edit, and remove staged nodes before writing anything.";
+      return "Review placeholder: inspect, edit, or remove proposed Nodes from the Onboarding Agent before anything is saved. Optional paste-import can merge here.";
     default:
-      return "Done step placeholder: finalize onboarding and open the main MindVault canvas.";
+      return "Done placeholder: confirm and open the main MindVault canvas.";
   }
 }
 

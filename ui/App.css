@@ -1137,6 +1137,34 @@ body,
   color: #7f90b8;
 }
 
+.llm-settings-dev-field {
+  margin-top: 4px;
+}
+
+.llm-settings-dev-json-input {
+  min-height: 120px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.llm-settings-dev-json-preview {
+  margin: 0;
+  padding: 10px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(5, 8, 14, 0.65);
+  color: #c8d4f0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .right-pane-stack {
   display: flex;
   flex-direction: column;

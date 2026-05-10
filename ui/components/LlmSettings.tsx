@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { DEV_ONBOARDING_CHANGED } from "../constants/devEvents";
+import { onboardingExtractProposals } from "../ipc";
 import { getLlmModels } from "../services/nodes";
+import { unwrapIpcResult } from "../services/ipcResult";
 import { AppError } from "../services/ipcResult";
 import { getOnboardingComplete, setOnboardingComplete } from "../services/settings";
 import {
@@ -16,10 +18,20 @@ import {
 
 type Provider = "ollama" | "lmstudio";
 
+const DEV_SAMPLE_ONBOARDING_ANSWERS = `{
+  "displayName": "Dev Tester",
+  "useMindVaultFor": "capturing context for projects",
+  "workContext": "software engineer on a small team",
+  "interests": "running, reading, local LLMs"
+}`;
+
 function LlmSettings() {
   const showDevOnboardingTools = import.meta.env.DEV;
   const [onboardingCompleteLabel, setOnboardingCompleteLabel] = useState<string>("…");
   const [onboardingDevBusy, setOnboardingDevBusy] = useState(false);
+  const [extractionAnswersJson, setExtractionAnswersJson] = useState(DEV_SAMPLE_ONBOARDING_ANSWERS);
+  const [extractionPreview, setExtractionPreview] = useState("");
+  const [extractionBusy, setExtractionBusy] = useState(false);
 
   const [provider, setProvider] = useState<Provider>(() => {
     return getLlmProvider() === "lmstudio" ? "lmstudio" : "ollama";
@@ -54,6 +66,45 @@ function LlmSettings() {
       setOnboardingCompleteLabel("error");
     }
     window.dispatchEvent(new CustomEvent(DEV_ONBOARDING_CHANGED));
+  }
+
+  async function onDevTestOnboardingExtraction() {
+    setExtractionPreview("");
+    if (!selectedModel.trim()) {
+      setExtractionPreview("Pick a model first (Test Connection & Fetch Models), then try again.");
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(extractionAnswersJson.trim()) as unknown;
+    } catch {
+      setExtractionPreview("Answers JSON is invalid — fix JSON syntax.");
+      return;
+    }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      setExtractionPreview("Answers must be a JSON object at the top level.");
+      return;
+    }
+
+    setExtractionBusy(true);
+    try {
+      const proposals = await unwrapIpcResult(
+        onboardingExtractProposals(
+          extractionAnswersJson.trim(),
+          provider,
+          endpoint.trim(),
+          selectedModel.trim()
+        )
+      );
+      setExtractionPreview(JSON.stringify(proposals, null, 2));
+      setStatus(`Dev: onboarding_extract_proposals OK (${proposals.length} proposal(s)).`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setExtractionPreview(`Error:\n${message}`);
+      setStatus("Dev: extraction failed — see Developer panel.");
+    } finally {
+      setExtractionBusy(false);
+    }
   }
 
   async function onTestConnection() {
@@ -226,6 +277,32 @@ function LlmSettings() {
               Mark onboarding done
             </button>
           </div>
+
+          <label className="settings-field llm-settings-dev-field">
+            <span>Test onboarding_extract_proposals (answers JSON)</span>
+            <textarea
+              className="llm-settings-dev-json-input"
+              rows={6}
+              spellCheck={false}
+              value={extractionAnswersJson}
+              onChange={(event) => setExtractionAnswersJson(event.target.value)}
+              aria-label="Sample onboarding answers JSON"
+            />
+          </label>
+          <button
+            type="button"
+            className="settings-action"
+            disabled={extractionBusy || onboardingDevBusy}
+            onClick={() => void onDevTestOnboardingExtraction()}
+          >
+            {extractionBusy ? "Running extraction…" : "Run onboarding extraction"}
+          </button>
+          {extractionPreview ? (
+            <pre className="llm-settings-dev-json-preview" tabIndex={0}>
+              {extractionPreview}
+            </pre>
+          ) : null}
+
           <p className="llm-settings-dev-note">Shown only in dev builds.</p>
         </div>
       ) : null}

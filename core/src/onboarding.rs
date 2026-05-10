@@ -103,6 +103,73 @@ fn normalize_tags(tags: Option<Vec<String>>, index: usize) -> Result<Option<Vec<
     }
 }
 
+/// Bundled Onboarding Agent: fixed system prompt for one-shot extraction from Q&A JSON.
+pub const ONBOARDING_EXTRACTION_SYSTEM_PROMPT: &str = r#"You are MindVault's onboarding extractor. The user submitted plain onboarding answers as JSON (not a chat).
+
+Your job: infer concise memory nodes they would want in a personal knowledge base.
+
+Output rules:
+- Respond with ONLY valid JSON. No markdown fences, no commentary before or after.
+- Shape: { "proposals": [ ... ] }
+- Each proposal MUST include: "title" (short), "summary" (one or two sentences).
+- Each proposal MUST include EITHER "category" OR "target_vault_key" (never omit both).
+- Optional: "detail", "tags" (string array), "node_type".
+
+Allowed "category" values (lowercase): demographics, personal, interests, work, learning, health, finance, credentials.
+
+Allowed "target_vault_key" values (lowercase): demographics, personal, interests, work, learning, health, finance, credentials (same intent as category; use when clearer).
+
+Allowed "node_type" values (lowercase): concept, fact, project, preference, event, instruction, identity, summary.
+
+Split distinct themes into separate proposals. Prefer 3–12 proposals unless the answers are very sparse."#;
+
+/// Ensure `answers_json` is a JSON object (Opaque user payload from the Basics step).
+pub fn validate_answers_json(raw: &str) -> Result<(), String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("Onboarding answers JSON is empty".to_string());
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(trimmed).map_err(|err| format!("Invalid answers JSON: {err}"))?;
+    if !value.is_object() {
+        return Err("Onboarding answers must be a JSON object at the top level".to_string());
+    }
+    Ok(())
+}
+
+pub fn build_onboarding_extraction_user_message(answers_json: &str) -> String {
+    format!(
+        "Here is the user's onboarding answers as JSON. Extract proposals as specified.\n\n{}",
+        answers_json.trim()
+    )
+}
+
+/// Trim optional ```json ... ``` wrappers from model output before parsing.
+pub fn normalize_llm_json_response(raw: &str) -> String {
+    let mut s = raw.trim().to_string();
+    if s.starts_with("```") {
+        if let Some(rest) = s.strip_prefix("```") {
+            let mut inner = rest.trim_start();
+            if let Some(idx) = inner.find('\n') {
+                inner = inner[idx + 1..].trim_start();
+            }
+            if let Some(end) = inner.rfind("```") {
+                inner = inner[..end].trim();
+            }
+            s = inner.to_string();
+        }
+    }
+    s.trim().to_string()
+}
+
+/// Parse proposals JSON after optional markdown fence stripping (what LLMs often emit).
+pub fn parse_proposals_from_llm_output(
+    raw_model_output: &str,
+) -> Result<Vec<ProposedNode>, String> {
+    let normalized = normalize_llm_json_response(raw_model_output);
+    parse_proposals_json(&normalized)
+}
+
 /// Parse strict onboarding proposal JSON for both interview extraction and paste import.
 /// The accepted payload shape is:
 /// `{ "proposals": [ { "title": "...", "summary": "...", ... } ] }`
@@ -165,7 +232,10 @@ pub fn vault_id_for_category_key(category_key: &str) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_proposals_json, vault_id_for_category_key};
+    use super::{
+        normalize_llm_json_response, parse_proposals_from_llm_output, parse_proposals_json,
+        validate_answers_json, vault_id_for_category_key,
+    };
 
     #[test]
     fn parse_valid_proposals_golden() {
@@ -241,5 +311,33 @@ mod tests {
             Some("vault_root_graph")
         );
         assert_eq!(vault_id_for_category_key("unknown"), None);
+    }
+
+    #[test]
+    fn validate_answers_json_accepts_object() {
+        assert!(validate_answers_json(r#"{"name":"Ada","focus":"work"}"#).is_ok());
+    }
+
+    #[test]
+    fn validate_answers_json_rejects_array() {
+        assert!(validate_answers_json(r#"[1,2]"#).is_err());
+    }
+
+    #[test]
+    fn normalize_llm_json_response_strips_fence() {
+        let raw = "```json\n{\"proposals\":[{\"title\":\"T\",\"summary\":\"S\",\"category\":\"work\"}]}\n```";
+        let normalized = normalize_llm_json_response(raw);
+        assert!(normalized.starts_with('{') && normalized.ends_with('}'));
+        assert!(!normalized.contains("```"));
+    }
+
+    #[test]
+    fn parse_proposals_from_llm_output_fenced_roundtrip() {
+        let raw = "```json
+{\"proposals\":[{\"title\":\"Dev\",\"summary\":\"Ships features\",\"category\":\"work\",\"node_type\":\"project\"}]}
+```";
+        let parsed = parse_proposals_from_llm_output(raw).expect("parse fenced output");
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].title, "Dev");
     }
 }

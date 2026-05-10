@@ -14,8 +14,8 @@ pub mod llm;
 pub mod onboarding;
 mod privacy;
 use ipc_types::{
-    Backlink, Door, DoorCreateInput, Node, NodeCreateInput, NodeUpdateInput, Tag, TagCreateInput,
-    Vault, VaultCreateInput, VaultUpdateInput,
+    Backlink, Door, DoorCreateInput, Node, NodeCreateInput, NodeUpdateInput,
+    OnboardingProposedNode, Tag, TagCreateInput, Vault, VaultCreateInput, VaultUpdateInput,
 };
 
 pub(crate) struct DbState {
@@ -1200,6 +1200,60 @@ async fn llm_chat(
     llm::client::LlmClient::complete(&client, &system_prompt_from_assembler, &messages).await
 }
 
+fn map_onboarding_proposed(node: crate::onboarding::ProposedNode) -> OnboardingProposedNode {
+    OnboardingProposedNode {
+        title: node.title,
+        summary: node.summary,
+        detail: node.detail,
+        category: node.category,
+        target_vault_key: node.target_vault_key,
+        tags: node.tags,
+        node_type: node.node_type,
+    }
+}
+
+#[tauri::command]
+async fn onboarding_extract_proposals(
+    answers_json: String,
+    provider: String,
+    endpoint: String,
+    model: String,
+) -> Result<Vec<OnboardingProposedNode>, String> {
+    onboarding::validate_answers_json(&answers_json)?;
+    let model_trimmed = model.trim();
+    if model_trimmed.is_empty() {
+        return Err("Model name is required for onboarding extraction.".to_string());
+    }
+
+    let parsed_provider = match provider.trim().to_lowercase().as_str() {
+        "ollama" => llm::client::LlmProvider::Ollama,
+        "lmstudio" => llm::client::LlmProvider::LmStudio,
+        _ => return Err("Unsupported provider. Use 'ollama' or 'lmstudio'.".to_string()),
+    };
+
+    let client = llm::client::UniversalClient::new(
+        parsed_provider,
+        endpoint.trim().to_string(),
+        model_trimmed.to_string(),
+    );
+
+    let user_content = onboarding::build_onboarding_extraction_user_message(&answers_json);
+    let messages = [llm::client::LlmMessage {
+        role: "user".to_string(),
+        content: user_content,
+    }];
+
+    let raw = llm::client::LlmClient::complete(
+        &client,
+        onboarding::ONBOARDING_EXTRACTION_SYSTEM_PROMPT,
+        &messages,
+    )
+    .await?;
+
+    let proposals = onboarding::parse_proposals_from_llm_output(&raw)?;
+    Ok(proposals.into_iter().map(map_onboarding_proposed).collect())
+}
+
 fn run_decay_refresh(db_path: &std::path::Path) -> Result<usize, String> {
     let conn = open_connection(db_path)?;
     let mut statement = conn
@@ -1415,7 +1469,8 @@ pub fn run() {
             debug_assemble_context,
             llm_count_tokens,
             llm_list_models,
-            llm_chat
+            llm_chat,
+            onboarding_extract_proposals
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {
