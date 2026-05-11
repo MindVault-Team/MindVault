@@ -150,6 +150,101 @@ body,
   color: #c3cfef;
 }
 
+.onboarding-form-grid,
+.onboarding-llm-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.onboarding-field {
+  display: grid;
+  gap: 6px;
+}
+
+.onboarding-field span {
+  font-size: 0.84rem;
+  color: #cfdbf9;
+}
+
+.onboarding-field input,
+.onboarding-field textarea,
+.onboarding-field select {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  background: rgba(10, 14, 26, 0.8);
+  color: #ecf3ff;
+  padding: 9px 10px;
+  font: inherit;
+}
+
+.onboarding-field textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.onboarding-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.onboarding-inline-button {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e8efff;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.onboarding-review-list {
+  display: grid;
+  gap: 10px;
+}
+
+.onboarding-proposal-card {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 10px;
+  display: grid;
+  gap: 7px;
+}
+
+.onboarding-proposal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.onboarding-proposal-header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #edf3ff;
+}
+
+.onboarding-proposal-header small {
+  color: #a8bbe6;
+  font-size: 0.75rem;
+}
+
+.onboarding-meta {
+  font-size: 0.82rem;
+  color: #b6c6ea !important;
+}
+
+.onboarding-hint {
+  font-size: 0.84rem;
+  color: #a5f2cd !important;
+}
+
+.onboarding-done-note {
+  display: grid;
+  gap: 6px;
+}
+
 .onboarding-actions {
   display: flex;
   align-items: center;

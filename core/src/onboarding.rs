@@ -364,7 +364,9 @@ mod tests {
             !normalized[..normalized.len().min(12)].contains("json"),
             "leading json token should be removed"
         );
-        parse_proposals_json(&normalized).expect("parse proposals after same-line json prefix");
+        parse_proposals_json(&normalized).unwrap_or_else(|err| {
+            panic!("parse proposals after same-line json prefix: {err}");
+        });
     }
 
     #[test]
@@ -384,7 +386,9 @@ mod tests {
         let raw = "```json
 {\"proposals\":[{\"title\":\"Dev\",\"summary\":\"Ships features\",\"category\":\"work\",\"node_type\":\"project\"}]}
 ```";
-        let parsed = parse_proposals_from_llm_output(raw).expect("parse fenced output");
+        let parsed = parse_proposals_from_llm_output(raw).unwrap_or_else(|err| {
+            panic!("parse fenced output: {err}");
+        });
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].title, "Dev");
     }
