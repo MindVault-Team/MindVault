@@ -361,6 +361,9 @@ function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingS
                       setLmStudioEndpointState(nextValue);
                     }
                     setHasExtracted(false);
+                    setModels([]);
+                    setStatusMessage(null);
+                    setSelectedModel("");
                   }}
                   placeholder={
                     provider === "ollama" ? "http://localhost:11434" : "http://localhost:1234"
