@@ -5,7 +5,7 @@
 -- health -> vault_health
 -- finance -> vault_finance
 
-INSERT OR IGNORE INTO vaults (id, name, icon, description, privacy_tier, decay_rate, sort_order, meta)
+INSERT OR IGNORE INTO vaults (id, name, icon, description, privacy_tier, priority_profile, sort_order, meta)
 VALUES
     ('vault_personal', 'Personal', 'user', 'Identity, preferences, interests, and personal context.', 'open', 'standard', 2, '{}'),
     ('vault_work', 'Work', 'briefcase', 'Professional goals, projects, and operating context.', 'open', 'standard', 3, '{}'),

@@ -11,7 +11,7 @@ export type NodeUpdateInput = {
   source?: string;
   sourceType?: string;
   privacyTier?: string;
-  decay?: string;
+  priority?: string;
   isArchived?: boolean;
   meta?: string;
 };

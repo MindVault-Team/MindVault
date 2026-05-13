@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getAllNodes,
-  optimizeAllDecayRates,
-  refreshAllDecayScores,
+  getNode,
+  optimizeAllPriorityProfiles,
+  refreshAllPriorityScores,
   updateNode,
 } from "../services/nodes";
 import type { Node } from "../ipc";
 import { AppError } from "../services/ipcResult";
-import DecayBar from "./DecayBar";
+import PriorityBar from "./PriorityBar";
 
-function parseDecayJson(decay: string): Record<string, unknown> {
+function parsePriorityJson(priority: string): Record<string, unknown> {
   try {
-    const parsed = JSON.parse(decay);
+    const parsed = JSON.parse(priority);
     if (typeof parsed === "object" && parsed !== null) {
       return parsed as Record<string, unknown>;
     }
@@ -21,29 +22,29 @@ function parseDecayJson(decay: string): Record<string, unknown> {
   return {};
 }
 
-function getDecayScore(node: Node): number {
-  const obj = parseDecayJson(node.decay);
+function getPriorityScore(node: Node): number {
+  const obj = parsePriorityJson(node.priority);
   if (typeof obj.score === "number" && Number.isFinite(obj.score)) {
     return obj.score;
   }
   return 1.0;
 }
 
-function getDecayRate(node: Node): string {
-  const obj = parseDecayJson(node.decay);
-  if (typeof obj.rate === "string") {
-    return obj.rate;
+function getPriorityProfile(node: Node): string {
+  const obj = parsePriorityJson(node.priority);
+  if (typeof obj.profile === "string") {
+    return obj.profile;
   }
   return "standard";
 }
 
 function isFrozen(node: Node): boolean {
-  const obj = parseDecayJson(node.decay);
+  const obj = parsePriorityJson(node.priority);
   return obj.frozen === true;
 }
 
 function getAccessCount(node: Node, key: string): number {
-  const obj = parseDecayJson(node.decay);
+  const obj = parsePriorityJson(node.priority);
   const val = obj[key];
   if (typeof val === "number" && Number.isFinite(val)) {
     return val;
@@ -51,30 +52,30 @@ function getAccessCount(node: Node, key: string): number {
   return 0;
 }
 
-type DecayDashboardProps = {
+type PriorityDashboardProps = {
   refreshKey: number;
 };
 
-function DecayDashboard({ refreshKey }: DecayDashboardProps) {
+function PriorityDashboard({ refreshKey }: PriorityDashboardProps) {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [status, setStatus] = useState("");
-  const [rateOverrides, setRateOverrides] = useState<Record<string, string>>({});
+  const [profileOverrides, setProfileOverrides] = useState<Record<string, string>>({});
   const [frozenOverrides, setFrozenOverrides] = useState<Record<string, boolean>>({});
   const [isOptimizing, setIsOptimizing] = useState(false);
   const saveTimersRef = useRef<Record<string, number>>({});
 
   async function fetchNodes() {
     try {
-      await refreshAllDecayScores();
+      await refreshAllPriorityScores();
       const all = await getAllNodes();
       setNodes(all);
-      const rates: Record<string, string> = {};
+      const profiles: Record<string, string> = {};
       const frozen: Record<string, boolean> = {};
       for (const node of all) {
-        rates[node.id] = getDecayRate(node);
+        profiles[node.id] = getPriorityProfile(node);
         frozen[node.id] = isFrozen(node);
       }
-      setRateOverrides(rates);
+      setProfileOverrides(profiles);
       setFrozenOverrides(frozen);
       setStatus("");
     } catch (err) {
@@ -103,11 +104,11 @@ function DecayDashboard({ refreshKey }: DecayDashboardProps) {
   );
 
   const sorted = useMemo(() => {
-    return [...nodes].sort((a, b) => getDecayScore(b) - getDecayScore(a));
+    return [...nodes].sort((a, b) => getPriorityScore(b) - getPriorityScore(a));
   }, [nodes]);
 
-  function onChangeRate(node: Node, nextRate: string) {
-    setRateOverrides((prev) => ({ ...prev, [node.id]: nextRate }));
+  function onChangeProfile(node: Node, nextProfile: string) {
+    setProfileOverrides((prev) => ({ ...prev, [node.id]: nextProfile }));
 
     if (saveTimersRef.current[node.id]) {
       window.clearTimeout(saveTimersRef.current[node.id]);
@@ -116,21 +117,23 @@ function DecayDashboard({ refreshKey }: DecayDashboardProps) {
     saveTimersRef.current[node.id] = window.setTimeout(() => {
       void (async () => {
         try {
-          const decayObj = parseDecayJson(node.decay);
-          decayObj.rate = nextRate;
-          decayObj.pinned = nextRate === "pinned";
+          const freshNode = await getNode(node.id);
+          if (!freshNode) return;
+          const priorityObj = parsePriorityJson(freshNode.priority);
+          priorityObj.profile = nextProfile;
+          priorityObj.pinned = nextProfile === "pinned";
           await updateNode({
             id: node.id,
-            decay: JSON.stringify(decayObj),
+            priority: JSON.stringify(priorityObj),
           });
-          await refreshAllDecayScores();
+          await refreshAllPriorityScores();
           const freshNodes = await getAllNodes();
           setNodes(freshNodes);
         } catch (err) {
           if (err instanceof AppError) {
             setStatus(err.message);
           } else {
-            setStatus("Failed to update decay rate.");
+            setStatus("Failed to update priority profile.");
           }
         }
       })();
@@ -144,11 +147,13 @@ function DecayDashboard({ refreshKey }: DecayDashboardProps) {
 
     void (async () => {
       try {
-        const decayObj = parseDecayJson(node.decay);
-        decayObj.frozen = nextFrozen;
+        const freshNode = await getNode(node.id);
+        if (!freshNode) return;
+        const priorityObj = parsePriorityJson(freshNode.priority);
+        priorityObj.frozen = nextFrozen;
         await updateNode({
           id: node.id,
-          decay: JSON.stringify(decayObj),
+          priority: JSON.stringify(priorityObj),
         });
         const freshNodes = await getAllNodes();
         setNodes(freshNodes);
@@ -165,17 +170,17 @@ function DecayDashboard({ refreshKey }: DecayDashboardProps) {
   async function onAutoOptimize() {
     setIsOptimizing(true);
     try {
-      await optimizeAllDecayRates();
-      await refreshAllDecayScores();
+      await optimizeAllPriorityProfiles();
+      await refreshAllPriorityScores();
       const freshNodes = await getAllNodes();
       setNodes(freshNodes);
-      const rates: Record<string, string> = {};
+      const profiles: Record<string, string> = {};
       const frozen: Record<string, boolean> = {};
       for (const node of freshNodes) {
-        rates[node.id] = getDecayRate(node);
+        profiles[node.id] = getPriorityProfile(node);
         frozen[node.id] = isFrozen(node);
       }
-      setRateOverrides(rates);
+      setProfileOverrides(profiles);
       setFrozenOverrides(frozen);
       setStatus("");
     } catch (err) {
@@ -214,19 +219,15 @@ function DecayDashboard({ refreshKey }: DecayDashboardProps) {
           </div>
         )}
         {sorted.map((node) => {
-          const score = getDecayScore(node);
-          const count30 =
-            getAccessCount(node, "access_count_30active") ||
-            getAccessCount(node, "access_count_30d");
-          const count90 =
-            getAccessCount(node, "access_count_90active") ||
-            getAccessCount(node, "access_count_90d");
-          const currentRate = rateOverrides[node.id] ?? getDecayRate(node);
+          const score = getPriorityScore(node);
+          const count30 = getAccessCount(node, "access_count_30active") || 0;
+          const count90 = getAccessCount(node, "access_count_90active") || 0;
+          const currentProfile = profileOverrides[node.id] ?? getPriorityProfile(node);
           const frozen = frozenOverrides[node.id] ?? isFrozen(node);
           return (
             <div key={node.id} className={`dashboard-row ${frozen ? "dashboard-frozen" : ""}`}>
               <div className="dashboard-title">{node.title}</div>
-              <DecayBar score={score} />
+              <PriorityBar score={score} />
               <span
                 className="dashboard-activity"
                 title="Touches: last 30 sessions · last 90 sessions"
@@ -235,8 +236,8 @@ function DecayDashboard({ refreshKey }: DecayDashboardProps) {
               </span>
               <select
                 className="dashboard-rate"
-                value={currentRate}
-                onChange={(e) => onChangeRate(node, e.target.value)}
+                value={currentProfile}
+                onChange={(e) => onChangeProfile(node, e.target.value)}
               >
                 <option value="standard">Standard</option>
                 <option value="slow">Slow</option>
@@ -261,4 +262,4 @@ function DecayDashboard({ refreshKey }: DecayDashboardProps) {
   );
 }
 
-export default DecayDashboard;
+export default PriorityDashboard;

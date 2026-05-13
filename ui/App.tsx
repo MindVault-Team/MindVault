@@ -3,14 +3,14 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import NodeEditor from "./components/NodeEditor";
 import NodeList from "./components/NodeList";
 import VaultSidebar from "./components/VaultSidebar";
-import DecayDashboard from "./components/DecayDashboard";
+import PriorityDashboard from "./components/PriorityDashboard";
 import LlmSettings from "./components/LlmSettings";
 import ScopeIndicator from "./components/ScopeIndicator";
 import ChatPanel from "./components/ChatPanel";
 import ActiveMemoryPanel from "./components/ActiveMemoryPanel";
 import OnboardingShell from "./components/OnboardingShell";
 import type { ContextAssemblerScope } from "./constants/contextBudget";
-import { refreshAllDecayScores } from "./services/nodes";
+import { refreshAllPriorityScores } from "./services/nodes";
 import { DEV_ONBOARDING_CHANGED } from "./constants/devEvents";
 import { getOnboardingComplete, setOnboardingComplete } from "./services/settings";
 import "./App.css";
@@ -22,7 +22,7 @@ function App() {
   const [onboardingError, setOnboardingError] = useState<string | null>(null);
 
   useEffect(() => {
-    void refreshAllDecayScores().catch(() => {});
+    void refreshAllPriorityScores().catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -244,7 +244,7 @@ function App() {
             >
               <div className={`pane-wrap right ${rightPaneVisible ? "show" : ""}`}>
                 {showDashboard ? (
-                  <DecayDashboard refreshKey={nodeRefreshKey} />
+                  <PriorityDashboard refreshKey={nodeRefreshKey} />
                 ) : showSettings ? (
                   <LlmSettings />
                 ) : (

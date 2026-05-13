@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use chat::ChatMessage;
 use rusqlite::{params, Connection, Row};
@@ -8,14 +9,15 @@ use tauri::Manager;
 
 mod auth;
 mod chat;
-mod decay;
 mod ipc_types;
 pub mod llm;
 pub mod onboarding;
+mod priority;
 mod privacy;
 use ipc_types::{
     Backlink, Door, DoorCreateInput, Node, NodeCreateInput, NodeUpdateInput,
-    OnboardingProposedNode, Tag, TagCreateInput, Vault, VaultCreateInput, VaultUpdateInput,
+    OnboardingNodeCommitInput, OnboardingProposedNode, Tag, TagCreateInput, Vault,
+    VaultCreateInput, VaultUpdateInput,
 };
 
 pub(crate) struct DbState {
@@ -82,6 +84,174 @@ fn generate_id(conn: &Connection, prefix: &str) -> Result<String, String> {
     .map_err(|err| format!("Failed generating id: {err}"))
 }
 
+fn minimal_pre_write_backup(db_path: &Path, reason: &str) -> Result<PathBuf, String> {
+    let parent = db_path
+        .parent()
+        .ok_or_else(|| format!("Database path has no parent: {}", db_path.display()))?;
+    let backups_dir = parent.join("backups");
+    fs::create_dir_all(&backups_dir).map_err(|err| {
+        format!(
+            "Failed creating backups directory {}: {err}",
+            backups_dir.display()
+        )
+    })?;
+    let now_unix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|err| format!("System clock before UNIX_EPOCH: {err}"))?
+        .as_millis();
+    let backup_path = backups_dir.join(format!("mindvault-pre-{reason}-{now_unix}.db"));
+
+    let conn =
+        Connection::open(db_path).map_err(|err| format!("Failed to open DB for backup: {err}"))?;
+
+    let backup_path_str = backup_path
+        .to_str()
+        .ok_or("Backup path is not valid UTF-8")?
+        .replace('\'', "''");
+
+    conn.execute(&format!("VACUUM INTO '{}'", backup_path_str), [])
+        .map_err(|err| {
+            format!(
+                "Failed creating pre-write backup {} -> {}: {err}",
+                db_path.display(),
+                backup_path.display()
+            )
+        })?;
+
+    Ok(backup_path)
+}
+
+type OnboardingDefaultVaultSpec = (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    i64,
+);
+
+fn onboarding_default_vault_spec(vault_id: &str) -> Option<OnboardingDefaultVaultSpec> {
+    match vault_id {
+        "vault_root_graph" => Some((
+            "Root Graph",
+            "root",
+            "Always-loaded cross-vault context graph.",
+            "open",
+            "standard",
+            "{}",
+            0_i64,
+        )),
+        "vault_credentials" => Some((
+            "Credentials",
+            "key",
+            "Local-only secrets and API keys.",
+            "locked",
+            "pinned",
+            "{}",
+            1_i64,
+        )),
+        "vault_personal" => Some((
+            "Personal",
+            "user",
+            "Identity, preferences, interests, and personal context.",
+            "open",
+            "standard",
+            "{}",
+            2_i64,
+        )),
+        "vault_work" => Some((
+            "Work",
+            "briefcase",
+            "Professional goals, projects, and operating context.",
+            "open",
+            "standard",
+            "{}",
+            3_i64,
+        )),
+        "vault_learning" => Some((
+            "Learning",
+            "book",
+            "Skills, study notes, and ongoing learning tracks.",
+            "open",
+            "standard",
+            "{}",
+            4_i64,
+        )),
+        "vault_health" => Some((
+            "Health",
+            "heart",
+            "Well-being routines, health notes, and constraints.",
+            "local_only",
+            "standard",
+            "{}",
+            5_i64,
+        )),
+        "vault_finance" => Some((
+            "Finance",
+            "coins",
+            "Budgets, financial plans, and money-related context.",
+            "local_only",
+            "standard",
+            "{}",
+            6_i64,
+        )),
+        _ => None,
+    }
+}
+
+fn ensure_onboarding_vault_exists(conn: &Connection, vault_id: &str) -> Result<(), String> {
+    if fetch_vault_by_id(conn, vault_id).is_ok() {
+        return Ok(());
+    }
+    let Some((name, icon, description, privacy_tier, priority_profile, meta, sort_order)) =
+        onboarding_default_vault_spec(vault_id)
+    else {
+        return Err(format!(
+            "Invalid onboarding commit vault_id '{vault_id}': no matching vault and not a known onboarding default"
+        ));
+    };
+
+    let revived = conn
+        .execute(
+            "UPDATE vaults
+             SET deleted_at = NULL,
+                 updated_at = datetime('now')
+             WHERE id = ?1;",
+            [vault_id],
+        )
+        .map_err(|err| format!("Failed reviving onboarding vault '{vault_id}': {err}"))?;
+    if revived > 0 {
+        return fetch_vault_by_id(conn, vault_id)
+            .map(|_| ())
+            .map_err(|err| {
+                format!("Failed fetching revived onboarding vault '{vault_id}': {err}")
+            });
+    }
+
+    conn.execute(
+        "INSERT OR IGNORE INTO vaults (id, name, icon, description, privacy_tier, priority_profile, sort_order, meta)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8);",
+        params![
+            vault_id,
+            name,
+            icon,
+            description,
+            privacy_tier,
+            priority_profile,
+            sort_order,
+            meta
+        ],
+    )
+    .map_err(|err| format!("Failed creating missing onboarding vault '{vault_id}': {err}"))?;
+
+    fetch_vault_by_id(conn, vault_id)
+        .map(|_| ())
+        .map_err(|err| {
+            format!("Failed verifying onboarding vault '{vault_id}' after ensure step: {err}")
+        })
+}
+
 fn vault_from_row(row: &Row<'_>) -> rusqlite::Result<Vault> {
     Ok(Vault {
         id: row.get(0)?,
@@ -90,7 +260,7 @@ fn vault_from_row(row: &Row<'_>) -> rusqlite::Result<Vault> {
         icon: row.get(3)?,
         description: row.get(4)?,
         privacy_tier: row.get(5)?,
-        decay_rate: row.get(6)?,
+        priority_profile: row.get(6)?,
         summary_node_id: row.get(7)?,
         sort_order: row.get(8)?,
         created_at: row.get(9)?,
@@ -112,7 +282,7 @@ fn node_from_row(row: &Row<'_>) -> rusqlite::Result<Node> {
         source: row.get(7)?,
         source_type: row.get(8)?,
         privacy_tier: row.get(9)?,
-        decay: row.get(10)?,
+        priority: row.get(10)?,
         version: row.get(11)?,
         is_archived: row.get::<_, i64>(12)? != 0,
         created_at: row.get(13)?,
@@ -159,7 +329,7 @@ fn backlink_from_row(row: &Row<'_>) -> rusqlite::Result<Backlink> {
 
 fn fetch_vault_by_id(conn: &Connection, vault_id: &str) -> Result<Vault, String> {
     conn.query_row(
-        "SELECT id, parent_vault_id, name, icon, description, privacy_tier, decay_rate, summary_node_id,
+        "SELECT id, parent_vault_id, name, icon, description, privacy_tier, priority_profile, summary_node_id,
                 sort_order, created_at, updated_at, deleted_at, meta
          FROM (
             SELECT id,
@@ -168,7 +338,7 @@ fn fetch_vault_by_id(conn: &Connection, vault_id: &str) -> Result<Vault, String>
                    icon,
                    description,
                    privacy_tier,
-                   decay_rate,
+                   priority_profile,
                    summary_node_id,
                    sort_order,
                    created_at,
@@ -184,7 +354,7 @@ fn fetch_vault_by_id(conn: &Connection, vault_id: &str) -> Result<Vault, String>
                    icon,
                    description,
                    COALESCE(privacy_tier, 'open') AS privacy_tier,
-                   COALESCE(decay_rate, 'standard') AS decay_rate,
+                   COALESCE(priority_profile, 'standard') AS priority_profile,
                    summary_node_id,
                    sort_order,
                    created_at,
@@ -205,7 +375,7 @@ fn fetch_vault_by_id(conn: &Connection, vault_id: &str) -> Result<Vault, String>
 fn fetch_node_by_id(conn: &Connection, node_id: &str) -> Result<Option<Node>, String> {
     conn.query_row(
         "SELECT id, vault_id, sub_vault_id, node_type, title, summary, detail, source, source_type,
-                privacy_tier, decay, version, is_archived, created_at, updated_at, last_accessed,
+                privacy_tier, priority, version, is_archived, created_at, updated_at, last_accessed,
                 deleted_at, meta
          FROM nodes
          WHERE id = ?1;",
@@ -249,7 +419,7 @@ fn fetch_nodes(conn: &Connection) -> Result<Vec<Node>, String> {
     let mut statement = conn
         .prepare(
             "SELECT id, vault_id, sub_vault_id, node_type, title, summary, detail, source, source_type,
-                    privacy_tier, decay, version, is_archived, created_at, updated_at, last_accessed,
+                    privacy_tier, priority, version, is_archived, created_at, updated_at, last_accessed,
                     deleted_at, meta
              FROM nodes
              WHERE deleted_at IS NULL
@@ -390,7 +560,7 @@ fn run_seed_data(conn: &mut Connection) -> Result<(), String> {
         "INSERT OR IGNORE INTO settings (key, value, scope) VALUES
             ('default_model', '\"local\"', 'global'),
             ('local_model_endpoint', '\"http://localhost:11434\"', 'global'),
-            ('decay_check_interval_h', '24', 'global'),
+            ('priority_check_interval_h', '24', 'global'),
             ('auto_trim_threshold', '0.25', 'global'),
             ('snapshot_on_session_end', 'true', 'global'),
             ('onboarding_complete', 'false', 'global');",
@@ -398,7 +568,7 @@ fn run_seed_data(conn: &mut Connection) -> Result<(), String> {
     .map_err(|err| format!("Failed inserting default settings: {err}"))?;
 
     tx.execute(
-        "INSERT OR IGNORE INTO vaults (id, name, icon, description, privacy_tier, decay_rate, sort_order, meta)
+        "INSERT OR IGNORE INTO vaults (id, name, icon, description, privacy_tier, priority_profile, sort_order, meta)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8);",
         params![
             "vault_root_graph",
@@ -414,7 +584,7 @@ fn run_seed_data(conn: &mut Connection) -> Result<(), String> {
     .map_err(|err| format!("Failed inserting Root Graph vault: {err}"))?;
 
     tx.execute(
-        "INSERT OR IGNORE INTO vaults (id, name, icon, description, privacy_tier, decay_rate, sort_order, meta)
+        "INSERT OR IGNORE INTO vaults (id, name, icon, description, privacy_tier, priority_profile, sort_order, meta)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8);",
         params![
             "vault_credentials",
@@ -523,14 +693,16 @@ fn vault_create(input: VaultCreateInput, state: tauri::State<'_, DbState>) -> Ip
 
         let id = generate_id(&tx, "vault")?;
         let privacy_tier = input.privacy_tier.unwrap_or_else(|| "open".to_string());
-        let decay_rate = input.decay_rate.unwrap_or_else(|| "standard".to_string());
+        let priority_profile = input
+            .priority_profile
+            .unwrap_or_else(|| "standard".to_string());
         let sort_order = input.sort_order.unwrap_or(0);
         let meta = input.meta.unwrap_or_else(|| "{}".to_string());
 
         if let Some(parent_vault_id) = input.parent_vault_id {
             tx.execute(
                 "INSERT INTO sub_vaults (
-                    id, vault_id, name, icon, description, privacy_tier, decay_rate, sort_order, meta
+                    id, vault_id, name, icon, description, privacy_tier, priority_profile, sort_order, meta
                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9);",
                 params![
                     id,
@@ -539,7 +711,7 @@ fn vault_create(input: VaultCreateInput, state: tauri::State<'_, DbState>) -> Ip
                     input.icon,
                     input.description,
                     privacy_tier,
-                    decay_rate,
+                    priority_profile,
                     sort_order,
                     meta
                 ],
@@ -547,7 +719,7 @@ fn vault_create(input: VaultCreateInput, state: tauri::State<'_, DbState>) -> Ip
             .map_err(|err| format!("Failed inserting sub-vault: {err}"))?;
         } else {
             tx.execute(
-                "INSERT INTO vaults (id, name, icon, description, privacy_tier, decay_rate, sort_order, meta)
+                "INSERT INTO vaults (id, name, icon, description, privacy_tier, priority_profile, sort_order, meta)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8);",
                 params![
                     id,
@@ -555,7 +727,7 @@ fn vault_create(input: VaultCreateInput, state: tauri::State<'_, DbState>) -> Ip
                     input.icon,
                     input.description,
                     privacy_tier,
-                    decay_rate,
+                    priority_profile,
                     sort_order,
                     meta
                 ],
@@ -576,7 +748,7 @@ fn vault_list(state: tauri::State<'_, DbState>) -> IpcResponse<Vec<Vault>> {
         let conn = open_connection(&state.db_path)?;
         let mut statement = conn
             .prepare(
-                "SELECT id, parent_vault_id, name, icon, description, privacy_tier, decay_rate, summary_node_id,
+                "SELECT id, parent_vault_id, name, icon, description, privacy_tier, priority_profile, summary_node_id,
                         sort_order, created_at, updated_at, deleted_at, meta
                  FROM (
                     SELECT id,
@@ -585,7 +757,7 @@ fn vault_list(state: tauri::State<'_, DbState>) -> IpcResponse<Vec<Vault>> {
                            icon,
                            description,
                            privacy_tier,
-                           decay_rate,
+                           priority_profile,
                            summary_node_id,
                            sort_order,
                            created_at,
@@ -601,7 +773,7 @@ fn vault_list(state: tauri::State<'_, DbState>) -> IpcResponse<Vec<Vault>> {
                            icon,
                            description,
                            COALESCE(privacy_tier, 'open') AS privacy_tier,
-                           COALESCE(decay_rate, 'standard') AS decay_rate,
+                           COALESCE(priority_profile, 'standard') AS priority_profile,
                            summary_node_id,
                            sort_order,
                            created_at,
@@ -670,17 +842,22 @@ fn vault_update(input: VaultUpdateInput, state: tauri::State<'_, DbState>) -> Ip
         let current = fetch_vault_by_id(&tx, &vault_id)?;
         let next_name = input.name.unwrap_or(current.name);
         let next_privacy_tier = input.privacy_tier.unwrap_or(current.privacy_tier);
-        let next_decay_rate = input.decay_rate.unwrap_or(current.decay_rate);
+        let next_priority_profile = input.priority_profile.unwrap_or(current.priority_profile);
 
         let affected_vaults = tx
             .execute(
                 "UPDATE vaults
                  SET name = ?2,
                      privacy_tier = ?3,
-                     decay_rate = ?4,
+                     priority_profile = ?4,
                      updated_at = datetime('now')
                  WHERE id = ?1 AND deleted_at IS NULL;",
-                params![&vault_id, &next_name, &next_privacy_tier, &next_decay_rate],
+                params![
+                    &vault_id,
+                    &next_name,
+                    &next_privacy_tier,
+                    &next_priority_profile
+                ],
             )
             .map_err(|err| format!("Failed updating vault: {err}"))?;
 
@@ -689,10 +866,15 @@ fn vault_update(input: VaultUpdateInput, state: tauri::State<'_, DbState>) -> Ip
                 "UPDATE sub_vaults
                  SET name = ?2,
                      privacy_tier = ?3,
-                     decay_rate = ?4,
+                     priority_profile = ?4,
                      updated_at = datetime('now')
                  WHERE id = ?1 AND deleted_at IS NULL;",
-                params![&vault_id, &next_name, &next_privacy_tier, &next_decay_rate],
+                params![
+                    &vault_id,
+                    &next_name,
+                    &next_privacy_tier,
+                    &next_priority_profile
+                ],
             )
             .map_err(|err| format!("Failed updating sub-vault: {err}"))?;
         }
@@ -941,15 +1123,15 @@ fn node_create(input: NodeCreateInput, state: tauri::State<'_, DbState>) -> IpcR
 
         let id = generate_id(&tx, "node")?;
         let node_type = input.node_type.unwrap_or_else(|| "concept".to_string());
-        let decay = input.decay.unwrap_or_else(|| {
-            "{\"score\":1.0,\"rate\":\"standard\",\"pinned\":false,\"access_count_30active\":0,\"access_count_90active\":0,\"auto_trim_threshold\":0.25}".to_string()
-        });
+        let priority_json = input
+            .priority
+            .unwrap_or_else(|| priority::DEFAULT_PRIORITY_JSON.to_string());
         let meta = input.meta.unwrap_or_else(|| "{}".to_string());
 
         tx.execute(
             "INSERT INTO nodes (
                 id, vault_id, sub_vault_id, node_type, title, summary, detail, source, source_type,
-                privacy_tier, decay, meta
+                privacy_tier, priority, meta
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12);",
             params![
                 id,
@@ -962,7 +1144,7 @@ fn node_create(input: NodeCreateInput, state: tauri::State<'_, DbState>) -> IpcR
                 input.source,
                 input.source_type,
                 input.privacy_tier,
-                decay,
+                priority_json,
                 meta
             ],
         )
@@ -1016,7 +1198,7 @@ fn node_update(input: NodeUpdateInput, state: tauri::State<'_, DbState>) -> IpcR
         let next_source = input.source.or(current.source);
         let next_source_type = input.source_type.or(current.source_type);
         let next_privacy_tier = input.privacy_tier.or(current.privacy_tier);
-        let next_decay = input.decay.unwrap_or(current.decay);
+        let next_priority = input.priority.unwrap_or(current.priority);
         let next_is_archived = if input.is_archived.unwrap_or(current.is_archived) {
             1_i64
         } else {
@@ -1036,7 +1218,7 @@ fn node_update(input: NodeUpdateInput, state: tauri::State<'_, DbState>) -> IpcR
                  source = ?8,
                  source_type = ?9,
                  privacy_tier = ?10,
-                 decay = ?11,
+                 priority = ?11,
                  version = ?12,
                  is_archived = ?13,
                  updated_at = datetime('now'),
@@ -1053,7 +1235,7 @@ fn node_update(input: NodeUpdateInput, state: tauri::State<'_, DbState>) -> IpcR
                 next_source,
                 next_source_type,
                 next_privacy_tier,
-                next_decay,
+                next_priority,
                 next_version,
                 next_is_archived,
                 next_meta
@@ -1076,29 +1258,29 @@ fn node_touch(node_id: String, state: tauri::State<'_, DbState>) -> IpcResponse<
     into_ipc((|| {
         let conn = open_connection(&state.db_path)?;
 
-        let decay_json_str: String = conn
+        let priority_json_str: String = conn
             .query_row(
-                "SELECT decay FROM nodes WHERE id = ?1 AND deleted_at IS NULL;",
+                "SELECT priority FROM nodes WHERE id = ?1 AND deleted_at IS NULL;",
                 [&node_id],
                 |row| row.get(0),
             )
-            .map_err(|err| format!("Failed reading decay for node {node_id}: {err}"))?;
+            .map_err(|err| format!("Failed reading priority for node {node_id}: {err}"))?;
 
-        let mut decay_obj: serde_json::Value =
-            serde_json::from_str(&decay_json_str).unwrap_or_else(|_| serde_json::json!({}));
+        let mut priority_obj: serde_json::Value =
+            serde_json::from_str(&priority_json_str).unwrap_or_else(|_| serde_json::json!({}));
 
-        let current_touches = decay_obj
-            .get("today_touches")
+        let current_touches = priority_obj
+            .get("session_touches")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
-        decay_obj["today_touches"] = serde_json::json!(current_touches + 1);
+        priority_obj["session_touches"] = serde_json::json!(current_touches + 1);
 
-        let updated_json = serde_json::to_string(&decay_obj)
-            .map_err(|err| format!("Failed serializing decay for node {node_id}: {err}"))?;
+        let updated_json = serde_json::to_string(&priority_obj)
+            .map_err(|err| format!("Failed serializing priority for node {node_id}: {err}"))?;
 
         let affected = conn
             .execute(
-                "UPDATE nodes SET last_accessed = datetime('now'), decay = ?2 WHERE id = ?1 AND deleted_at IS NULL;",
+                "UPDATE nodes SET last_accessed = datetime('now'), priority = ?2 WHERE id = ?1 AND deleted_at IS NULL;",
                 params![&node_id, &updated_json],
             )
             .map_err(|err| format!("Failed touching node: {err}"))?;
@@ -1266,28 +1448,184 @@ async fn onboarding_extract_proposals(
     Ok(proposals.into_iter().map(map_onboarding_proposed).collect())
 }
 
-fn run_decay_refresh(db_path: &std::path::Path) -> Result<usize, String> {
+#[tauri::command]
+fn onboarding_commit(
+    proposals: Vec<OnboardingNodeCommitInput>,
+    state: tauri::State<'_, DbState>,
+) -> IpcResponse<bool> {
+    into_ipc((|| {
+        // 1. Validate all proposals first
+        for proposal in &proposals {
+            let vault_id = proposal.vault_id.trim();
+            if vault_id.is_empty() {
+                return Err("Onboarding commit row is missing vault_id".to_string());
+            }
+
+            let title = proposal.title.trim();
+            if title.is_empty() {
+                return Err("Onboarding commit row has empty title".to_string());
+            }
+
+            let summary = proposal.summary.trim();
+            if summary.is_empty() {
+                return Err("Onboarding commit row has empty summary".to_string());
+            }
+
+            let node_type = proposal
+                .node_type
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("concept");
+
+            let valid_node_types = [
+                "concept",
+                "fact",
+                "project",
+                "preference",
+                "event",
+                "instruction",
+                "identity",
+                "summary",
+            ];
+            if !valid_node_types.contains(&node_type) {
+                return Err(format!(
+                    "Invalid node_type '{}'. Must be one of {:?}",
+                    node_type, valid_node_types
+                ));
+            }
+
+            let source_type = proposal
+                .source_type
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("onboarding");
+
+            let valid_source_types = [
+                "manual",
+                "pdf_import",
+                "transcript_import",
+                "ai_transfer",
+                "agent_extract",
+                "onboarding",
+            ];
+            if !valid_source_types.contains(&source_type) {
+                return Err(format!(
+                    "Invalid source_type '{}'. Must be one of {:?}",
+                    source_type, valid_source_types
+                ));
+            }
+        }
+
+        // 2. Take pre-write backup (expensive, only run if payload is completely valid)
+        if !proposals.is_empty() {
+            let _ = minimal_pre_write_backup(&state.db_path, "onboarding-commit")?;
+        }
+
+        let mut conn = open_connection(&state.db_path)?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("Failed starting onboarding_commit transaction: {err}"))?;
+
+        // 3. Process and write
+        for proposal in &proposals {
+            let vault_id = proposal.vault_id.trim();
+            if vault_id.is_empty() {
+                return Err("Onboarding commit row is missing vault_id".to_string());
+            }
+            ensure_onboarding_vault_exists(&tx, vault_id)?;
+            let vault = fetch_vault_by_id(&tx, vault_id)?;
+            let (resolved_vault_id, resolved_sub_vault_id) = match vault.parent_vault_id {
+                Some(parent_id) => (parent_id, Some(vault.id)),
+                None => (vault.id, None),
+            };
+
+            let node_type = proposal
+                .node_type
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("concept");
+
+            let source_type = proposal
+                .source_type
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("onboarding");
+            let detail = proposal
+                .detail
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string());
+            let priority_json = priority::DEFAULT_PRIORITY_JSON;
+
+            let node_id = generate_id(&tx, "node")?;
+
+            tx.execute(
+                "INSERT INTO nodes (
+                    id, vault_id, sub_vault_id, node_type, title, summary, detail, source, source_type,
+                    privacy_tier, priority, meta
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, ?10, ?11);",
+                params![
+                    node_id,
+                    resolved_vault_id,
+                    resolved_sub_vault_id,
+                    node_type,
+                    proposal.title.trim(),
+                    proposal.summary.trim(),
+                    detail,
+                    Some("onboarding_wizard"),
+                    source_type,
+                    priority_json,
+                    "{}"
+                ],
+            )
+            .map_err(|err| format!("Failed inserting onboarding node: {err}"))?;
+        }
+
+        tx.execute(
+            "INSERT INTO settings (key, value, scope, updated_at)
+             VALUES ('onboarding_complete', 'true', 'global', datetime('now'))
+             ON CONFLICT(key) DO UPDATE
+             SET value = excluded.value,
+                 scope = excluded.scope,
+                 updated_at = datetime('now');",
+            [],
+        )
+        .map_err(|err| format!("Failed setting onboarding_complete=true: {err}"))?;
+
+        tx.commit()
+            .map_err(|err| format!("Failed committing onboarding_commit: {err}"))?;
+
+        Ok(true)
+    })())
+}
+
+fn run_priority_refresh(db_path: &std::path::Path) -> Result<usize, String> {
     let conn = open_connection(db_path)?;
     let mut statement = conn
-        .prepare("SELECT id, vault_id, decay FROM nodes WHERE deleted_at IS NULL;")
-        .map_err(|err| format!("Failed preparing decay refresh query: {err}"))?;
+        .prepare("SELECT id, vault_id, priority FROM nodes WHERE deleted_at IS NULL;")
+        .map_err(|err| format!("Failed preparing priority refresh query: {err}"))?;
 
     let rows: Vec<(String, String, String)> = statement
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-        .map_err(|err| format!("Failed querying nodes for decay: {err}"))?
+        .map_err(|err| format!("Failed querying nodes for priority: {err}"))?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|err| format!("Failed reading decay rows: {err}"))?;
+        .map_err(|err| format!("Failed reading priority rows: {err}"))?;
 
     // Pass 1: Determine which vaults had activity today.
     let mut active_vaults = std::collections::HashSet::new();
-    for (_, vault_id, decay_json_str) in &rows {
-        let decay_obj: serde_json::Value =
-            serde_json::from_str(decay_json_str).unwrap_or_else(|_| serde_json::json!({}));
-        let today_touches = decay_obj
-            .get("today_touches")
+    for (_, vault_id, priority_json_str) in &rows {
+        let priority_obj: serde_json::Value =
+            serde_json::from_str(priority_json_str).unwrap_or_else(|_| serde_json::json!({}));
+        let session_touches = priority_obj
+            .get("session_touches")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
-        if today_touches > 0 {
+        if session_touches > 0 {
             active_vaults.insert(vault_id.clone());
         }
     }
@@ -1295,39 +1633,39 @@ fn run_decay_refresh(db_path: &std::path::Path) -> Result<usize, String> {
     // Pass 2: Roll over and recalculate scores with vault-relative context.
     let mut updated_count: usize = 0;
 
-    for (id, vault_id, decay_json_str) in &rows {
-        let decay_obj: serde_json::Value =
-            serde_json::from_str(decay_json_str).unwrap_or_else(|_| serde_json::json!({}));
+    for (id, vault_id, priority_json_str) in &rows {
+        let priority_obj: serde_json::Value =
+            serde_json::from_str(priority_json_str).unwrap_or_else(|_| serde_json::json!({}));
 
         let vault_is_active = active_vaults.contains(vault_id);
-        let mut decay_obj = decay::calculate_rollover(decay_obj, vault_is_active);
+        let mut priority_obj = priority::calculate_rollover(priority_obj, vault_is_active);
 
-        let rate = decay_obj
-            .get("rate")
+        let profile = priority_obj
+            .get("profile")
             .and_then(|v| v.as_str())
             .unwrap_or("standard");
 
-        let access_30d = decay_obj
+        let access_30d = priority_obj
             .get("access_count_30active")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
-        let link_count = decay_obj
+        let link_count = priority_obj
             .get("link_count")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
-        let new_score = decay::calculate_score(access_30d, link_count, rate);
-        decay_obj["score"] = serde_json::json!(new_score);
+        let new_score = priority::calculate_score(access_30d, link_count, profile);
+        priority_obj["score"] = serde_json::json!(new_score);
 
-        let updated_json = serde_json::to_string(&decay_obj)
-            .map_err(|err| format!("Failed serializing decay for node {id}: {err}"))?;
+        let updated_json = serde_json::to_string(&priority_obj)
+            .map_err(|err| format!("Failed serializing priority for node {id}: {err}"))?;
 
         conn.execute(
-            "UPDATE nodes SET decay = ?2, updated_at = datetime('now') WHERE id = ?1 AND deleted_at IS NULL;",
+            "UPDATE nodes SET priority = ?2, updated_at = datetime('now') WHERE id = ?1 AND deleted_at IS NULL;",
             params![id, updated_json],
         )
-        .map_err(|err| format!("Failed updating decay for node {id}: {err}"))?;
+        .map_err(|err| format!("Failed updating priority for node {id}: {err}"))?;
 
         updated_count += 1;
     }
@@ -1336,16 +1674,16 @@ fn run_decay_refresh(db_path: &std::path::Path) -> Result<usize, String> {
 }
 
 #[tauri::command]
-fn decay_refresh_all(state: tauri::State<'_, DbState>) -> IpcResponse<usize> {
-    into_ipc(run_decay_refresh(&state.db_path))
+fn priority_refresh_all(state: tauri::State<'_, DbState>) -> IpcResponse<usize> {
+    into_ipc(run_priority_refresh(&state.db_path))
 }
 
 #[tauri::command]
-fn decay_optimize_all(state: tauri::State<'_, DbState>) -> IpcResponse<usize> {
+fn priority_optimize_all(state: tauri::State<'_, DbState>) -> IpcResponse<usize> {
     into_ipc((|| {
         let conn = open_connection(&state.db_path)?;
         let mut statement = conn
-            .prepare("SELECT id, decay FROM nodes WHERE deleted_at IS NULL;")
+            .prepare("SELECT id, priority FROM nodes WHERE deleted_at IS NULL;")
             .map_err(|err| format!("Failed preparing optimize query: {err}"))?;
 
         let rows: Vec<(String, String)> = statement
@@ -1356,20 +1694,20 @@ fn decay_optimize_all(state: tauri::State<'_, DbState>) -> IpcResponse<usize> {
 
         let mut updated_count: usize = 0;
 
-        for (id, decay_json_str) in &rows {
-            let mut decay_obj: serde_json::Value =
-                serde_json::from_str(decay_json_str).unwrap_or_else(|_| serde_json::json!({}));
+        for (id, priority_json_str) in &rows {
+            let mut priority_obj: serde_json::Value =
+                serde_json::from_str(priority_json_str).unwrap_or_else(|_| serde_json::json!({}));
 
-            let current_rate = decay_obj
-                .get("rate")
+            let current_profile = priority_obj
+                .get("profile")
                 .and_then(|v| v.as_str())
                 .unwrap_or("standard");
 
-            if current_rate == "pinned" {
+            if current_profile == "pinned" {
                 continue;
             }
 
-            let frozen = decay_obj
+            let frozen = priority_obj
                 .get("frozen")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
@@ -1377,12 +1715,12 @@ fn decay_optimize_all(state: tauri::State<'_, DbState>) -> IpcResponse<usize> {
                 continue;
             }
 
-            let count_30d = decay_obj
+            let count_30d = priority_obj
                 .get("access_count_30active")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
 
-            let new_rate = if count_30d >= 7 {
+            let new_profile = if count_30d >= 7 {
                 "slow"
             } else if count_30d <= 2 {
                 "fast"
@@ -1390,18 +1728,18 @@ fn decay_optimize_all(state: tauri::State<'_, DbState>) -> IpcResponse<usize> {
                 "standard"
             };
 
-            if new_rate == current_rate {
+            if new_profile == current_profile {
                 continue;
             }
 
-            decay_obj["rate"] = serde_json::json!(new_rate);
-            decay_obj["pinned"] = serde_json::json!(false);
+            priority_obj["profile"] = serde_json::json!(new_profile);
+            priority_obj["pinned"] = serde_json::json!(false);
 
-            let updated_json = serde_json::to_string(&decay_obj)
+            let updated_json = serde_json::to_string(&priority_obj)
                 .map_err(|err| format!("Failed serializing optimize for node {id}: {err}"))?;
 
             conn.execute(
-                "UPDATE nodes SET decay = ?2, updated_at = datetime('now') WHERE id = ?1 AND deleted_at IS NULL;",
+                "UPDATE nodes SET priority = ?2, updated_at = datetime('now') WHERE id = ?1 AND deleted_at IS NULL;",
                 params![id, updated_json],
             )
             .map_err(|err| format!("Failed optimizing node {id}: {err}"))?;
@@ -1430,14 +1768,14 @@ pub fn run() {
             let bg_path = db_path;
             std::thread::spawn(move || loop {
                 std::thread::sleep(std::time::Duration::from_secs(24 * 60 * 60));
-                match run_decay_refresh(&bg_path) {
+                match run_priority_refresh(&bg_path) {
                     Ok(count) => {
                         if count > 0 {
-                            eprintln!("[decay] refreshed {count} node(s)");
+                            eprintln!("[priority] refreshed {count} node(s)");
                         }
                     }
                     Err(err) => {
-                        eprintln!("[decay] background refresh failed: {err}");
+                        eprintln!("[priority] background refresh failed: {err}");
                     }
                 }
             });
@@ -1476,13 +1814,14 @@ pub fn run() {
             auth::auth_secret_is_setup,
             auth::auth_secret_set,
             auth::auth_secret_verify,
-            decay_refresh_all,
-            decay_optimize_all,
+            priority_refresh_all,
+            priority_optimize_all,
             debug_assemble_context,
             llm_count_tokens,
             llm_list_models,
             llm_chat,
-            onboarding_extract_proposals
+            onboarding_extract_proposals,
+            onboarding_commit
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {

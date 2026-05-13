@@ -1040,7 +1040,7 @@ body,
   opacity: 0.9;
 }
 
-.editor-decay {
+.editor-priority {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -1048,7 +1048,7 @@ body,
   font-size: 0.82rem;
 }
 
-.editor-decay select {
+.editor-priority select {
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
   background: rgba(5, 8, 14, 0.7);
@@ -1056,7 +1056,7 @@ body,
   padding: 6px 8px;
 }
 
-.decay-bar {
+.priority-bar {
   position: relative;
   width: 80px;
   height: 8px;
@@ -1066,26 +1066,26 @@ body,
   flex-shrink: 0;
 }
 
-.decay-bar-fill {
+.priority-bar-fill {
   height: 100%;
   border-radius: 4px;
   transition: width 300ms ease;
 }
 
-.decay-bar-high {
+.priority-bar-high {
   background: linear-gradient(90deg, #4fd1c5, #63b3ed);
 }
 
-.decay-bar-mid {
+.priority-bar-mid {
   background: linear-gradient(90deg, #ecc94b, #ed8936);
 }
 
-.decay-bar-low {
+.priority-bar-low {
   background: linear-gradient(90deg, #fc8181, #e53e3e);
   opacity: 0.8;
 }
 
-.decay-bar-label {
+.priority-bar-label {
   position: absolute;
   inset: 0;
   display: flex;

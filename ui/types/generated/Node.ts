@@ -11,7 +11,7 @@ export type Node = {
   source: string | null;
   sourceType: string | null;
   privacyTier: string | null;
-  decay: string;
+  priority: string;
   version: number;
   isArchived: boolean;
   createdAt: string;

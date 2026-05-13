@@ -6,7 +6,7 @@ export type VaultCreateInput = {
   icon?: string;
   description?: string;
   privacyTier?: string;
-  decayRate?: string;
+  priorityProfile?: string;
   sortOrder?: number;
   meta?: string;
 };

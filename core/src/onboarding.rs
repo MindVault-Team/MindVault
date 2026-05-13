@@ -240,7 +240,7 @@ pub fn parse_proposals_json(raw_json: &str) -> Result<Vec<ProposedNode>, String>
 /// Keep these aligned with `db/migrations/0003_onboarding_default_vaults.sql`.
 pub fn vault_id_for_category_key(category_key: &str) -> Option<&'static str> {
     match category_key.trim().to_lowercase().as_str() {
-        "demographics" => Some("vault_root_graph"),
+        "demographics" => Some("vault_personal"),
         "interests" | "personal" => Some("vault_personal"),
         "work" => Some("vault_work"),
         "learning" => Some("vault_learning"),
@@ -329,7 +329,7 @@ mod tests {
         );
         assert_eq!(
             vault_id_for_category_key("Demographics"),
-            Some("vault_root_graph")
+            Some("vault_personal")
         );
         assert_eq!(vault_id_for_category_key("unknown"), None);
     }

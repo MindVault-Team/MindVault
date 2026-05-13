@@ -1,7 +1,7 @@
 import {
   chatWithLlm,
-  decayOptimizeAll,
-  decayRefreshAll,
+  priorityOptimizeAll,
+  priorityRefreshAll,
   debugAssembleContext,
   listLlmModels,
   nodeCreate,
@@ -44,12 +44,12 @@ export async function touchNode(nodeId: string): Promise<boolean> {
   return unwrapIpcResult(nodeTouch(nodeId));
 }
 
-export async function refreshAllDecayScores(): Promise<number> {
-  return unwrapIpcResult(decayRefreshAll());
+export async function refreshAllPriorityScores(): Promise<number> {
+  return unwrapIpcResult(priorityRefreshAll());
 }
 
-export async function optimizeAllDecayRates(): Promise<number> {
-  return unwrapIpcResult(decayOptimizeAll());
+export async function optimizeAllPriorityProfiles(): Promise<number> {
+  return unwrapIpcResult(priorityOptimizeAll());
 }
 
 export async function debugBuildContext(nodeIds: string[], scope: string): Promise<string> {

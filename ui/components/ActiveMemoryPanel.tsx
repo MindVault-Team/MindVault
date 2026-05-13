@@ -7,20 +7,20 @@ type ActiveMemoryPanelProps = {
   selectedNodeIds: string[];
 };
 
-type NodeDecayMeta = {
-  rate: string;
+type NodePriorityMeta = {
+  profile: string;
   accessCount30Active: number;
 };
 
-function parseDecayMeta(decayJson: string): NodeDecayMeta {
+function parsePriorityMeta(priorityJson: string): NodePriorityMeta {
   try {
-    const raw = JSON.parse(decayJson) as Record<string, unknown>;
-    const rate = typeof raw.rate === "string" ? raw.rate : "standard";
+    const raw = JSON.parse(priorityJson) as Record<string, unknown>;
+    const profile = typeof raw.profile === "string" ? raw.profile : "standard";
     const accessCount30Active =
       typeof raw.access_count_30active === "number" ? raw.access_count_30active : 0;
-    return { rate, accessCount30Active };
+    return { profile, accessCount30Active };
   } catch {
-    return { rate: "standard", accessCount30Active: 0 };
+    return { profile: "standard", accessCount30Active: 0 };
   }
 }
 
@@ -74,7 +74,7 @@ function ActiveMemoryPanel({ selectedNodeIds }: ActiveMemoryPanelProps) {
   const nodeCards = useMemo(
     () =>
       loadedNodes.map((node) => {
-        const decay = parseDecayMeta(node.decay);
+        const meta = parsePriorityMeta(node.priority);
         return (
           <article key={node.id} className="active-memory-item">
             <div className="active-memory-item-top">
@@ -82,8 +82,10 @@ function ActiveMemoryPanel({ selectedNodeIds }: ActiveMemoryPanelProps) {
               <span className="active-memory-door-stub">🚪 0</span>
             </div>
             <div className="active-memory-item-meta">
-              <span className={`active-memory-rate-badge rate-${decay.rate}`}>{decay.rate}</span>
-              <span className="active-memory-usage">activity {decay.accessCount30Active}</span>
+              <span className={`active-memory-rate-badge rate-${meta.profile}`}>
+                {meta.profile}
+              </span>
+              <span className="active-memory-usage">activity {meta.accessCount30Active}</span>
             </div>
           </article>
         );

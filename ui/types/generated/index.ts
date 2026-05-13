@@ -4,6 +4,7 @@ export type { DoorCreateInput } from "./DoorCreateInput";
 export type { Node } from "./Node";
 export type { NodeCreateInput } from "./NodeCreateInput";
 export type { NodeUpdateInput } from "./NodeUpdateInput";
+export type { OnboardingNodeCommitInput } from "./OnboardingNodeCommitInput";
 export type { OnboardingProposedNode } from "./OnboardingProposedNode";
 export type { Tag } from "./Tag";
 export type { TagCreateInput } from "./TagCreateInput";

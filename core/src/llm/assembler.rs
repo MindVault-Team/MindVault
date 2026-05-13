@@ -72,24 +72,10 @@ struct AssemblerNode {
     score: f64,
 }
 
-fn parse_score(decay_json: &str) -> f64 {
-    let parsed: Value = serde_json::from_str(decay_json).unwrap_or_else(|_| serde_json::json!({}));
-    let access_count = parsed
-        .get("access_count_30active")
-        .and_then(|value| value.as_f64())
-        .or_else(|| {
-            parsed
-                .get("access_count_30d")
-                .and_then(|value| value.as_f64())
-        })
-        .unwrap_or(0.0);
-    let base_score = (access_count / 10.0).clamp(0.1, 1.0);
-    let link_bonus = parsed
-        .get("link_count")
-        .and_then(|value| value.as_f64())
-        .map(|count| (count * 0.05).clamp(0.0, 0.2))
-        .unwrap_or(0.0);
-    base_score + link_bonus
+fn parse_score(priority_json: &str) -> f64 {
+    let parsed: Value =
+        serde_json::from_str(priority_json).unwrap_or_else(|_| serde_json::json!({}));
+    parsed.get("score").and_then(|v| v.as_f64()).unwrap_or(0.1)
 }
 
 fn escape_xml_attr(value: &str) -> String {
@@ -113,7 +99,7 @@ fn fetch_requested_nodes(
                     COALESCE(n.detail, '') AS detail,
                     n.privacy_tier,
                     n.vault_id,
-                    n.decay,
+                    n.priority,
                     sv.privacy_tier,
                     v.privacy_tier
              FROM nodes n
@@ -138,8 +124,8 @@ fn fetch_requested_nodes(
             .next()
             .map_err(|err| format!("Failed reading assembler row for node {node_id}: {err}"))?;
         if let Some(row) = maybe_row {
-            let decay_json: String = row.get(6).map_err(|err| {
-                format!("Failed decoding decay field for node {node_id} in assembler: {err}")
+            let priority_json: String = row.get(6).map_err(|err| {
+                format!("Failed decoding priority field for node {node_id} in assembler: {err}")
             })?;
             nodes.push(AssemblerNode {
                 id: row.get(0).map_err(|err| {
@@ -169,7 +155,7 @@ fn fetch_requested_nodes(
                         "Failed decoding vault privacy field for node {node_id} in assembler: {err}"
                     )
                 })?,
-                score: parse_score(&decay_json),
+                score: parse_score(&priority_json),
             });
         }
     }
@@ -267,7 +253,7 @@ mod tests {
                 summary TEXT NOT NULL,
                 detail TEXT,
                 privacy_tier TEXT,
-                decay TEXT NOT NULL,
+                priority TEXT NOT NULL,
                 is_archived INTEGER NOT NULL DEFAULT 0,
                 deleted_at TEXT
             );",
@@ -284,7 +270,7 @@ mod tests {
 
         if let Err(err) = conn.execute(
             "INSERT INTO nodes (
-                id, vault_id, sub_vault_id, title, summary, detail, privacy_tier, decay, is_archived, deleted_at
+                id, vault_id, sub_vault_id, title, summary, detail, privacy_tier, priority, is_archived, deleted_at
             ) VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, 0, NULL);",
             [
                 "node_local_only",

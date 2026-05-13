@@ -6,6 +6,7 @@ import type {
   Node,
   NodeCreateInput,
   NodeUpdateInput,
+  OnboardingNodeCommitInput,
   OnboardingProposedNode,
   Tag,
   TagCreateInput,
@@ -28,6 +29,7 @@ export type {
   Node,
   NodeCreateInput,
   NodeUpdateInput,
+  OnboardingNodeCommitInput,
   OnboardingProposedNode,
   Tag,
   TagCreateInput,
@@ -175,12 +177,12 @@ export function authVerifyPassword(password: string) {
   return invokeTyped<boolean>("auth_secret_verify", { passphrase: password });
 }
 
-export function decayRefreshAll() {
-  return invokeTyped<number>("decay_refresh_all");
+export function priorityRefreshAll() {
+  return invokeTyped<number>("priority_refresh_all");
 }
 
-export function decayOptimizeAll() {
-  return invokeTyped<number>("decay_optimize_all");
+export function priorityOptimizeAll() {
+  return invokeTyped<number>("priority_optimize_all");
 }
 
 export function debugAssembleContext(nodeIds: string[], scope: string) {
@@ -234,4 +236,9 @@ export function onboardingExtractProposals(
   })
     .then((ok) => ({ ok }) as IpcResult<OnboardingProposedNode[]>)
     .catch((error) => ({ err: String(error) }) as IpcResult<OnboardingProposedNode[]>);
+}
+
+/** Persist accepted onboarding proposals into nodes and mark onboarding complete. */
+export function onboardingCommit(proposals: OnboardingNodeCommitInput[]) {
+  return invokeTyped<boolean>("onboarding_commit", { proposals });
 }

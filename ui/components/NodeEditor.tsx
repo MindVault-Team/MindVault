@@ -3,7 +3,7 @@ import {
   deleteNode,
   getAllNodes,
   getNode,
-  refreshAllDecayScores,
+  refreshAllPriorityScores,
   touchNode,
   updateNode,
 } from "../services/nodes";
@@ -21,7 +21,7 @@ import {
 import { isAuthSetup, setMasterPassword, verifyMasterPassword } from "../services/auth";
 import { getEffectivePrivacy, getPrivacyRank } from "../utils/privacy";
 import { PrivacyBadge } from "./PrivacyBadge";
-import DecayBar from "./DecayBar";
+import PriorityBar from "./PriorityBar";
 
 type NodeEditorProps = {
   selectedNodeId: string | null;
@@ -62,7 +62,7 @@ function NodeEditor({
   const [repointDoorId, setRepointDoorId] = useState<string | null>(null);
   const [breadcrumbPath, setBreadcrumbPath] = useState("");
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
-  const [editDecayRate, setEditDecayRate] = useState("standard");
+  const [editPriorityProfile, setEditPriorityProfile] = useState("standard");
   const [editFrozen, setEditFrozen] = useState(false);
   const [status, setStatus] = useState<string>("");
   const saveRunIdRef = useRef(0);
@@ -250,14 +250,14 @@ function NodeEditor({
       setEditDetail(node?.detail ?? "");
       setEditPrivacy(node?.privacyTier ?? "open");
       try {
-        const parsed = node?.decay
-          ? typeof node.decay === "string"
-            ? JSON.parse(node.decay)
-            : node.decay
+        const parsed = node?.priority
+          ? typeof node.priority === "string"
+            ? JSON.parse(node.priority)
+            : node.priority
           : null;
-        setEditDecayRate(
-          parsed && typeof parsed === "object" && "rate" in parsed
-            ? String(parsed.rate)
+        setEditPriorityProfile(
+          parsed && typeof parsed === "object" && "profile" in parsed
+            ? String(parsed.profile)
             : "standard"
         );
         setEditFrozen(
@@ -266,7 +266,7 @@ function NodeEditor({
             : false
         );
       } catch {
-        setEditDecayRate("standard");
+        setEditPriorityProfile("standard");
       }
     }, 0);
     return () => clearTimeout(syncTimer);
@@ -287,12 +287,12 @@ function NodeEditor({
     }
 
     const currentPrivacy = node.privacyTier ?? "open";
-    let currentDecayRate = "standard";
+    let currentPriorityProfile = "standard";
     let currentFrozen = false;
     try {
-      const parsed = typeof node.decay === "string" ? JSON.parse(node.decay) : node.decay;
-      if (parsed && typeof parsed === "object" && "rate" in parsed) {
-        currentDecayRate = String(parsed.rate);
+      const parsed = typeof node.priority === "string" ? JSON.parse(node.priority) : node.priority;
+      if (parsed && typeof parsed === "object" && "profile" in parsed) {
+        currentPriorityProfile = String(parsed.profile);
       }
       if (parsed && typeof parsed === "object" && "frozen" in parsed) {
         currentFrozen = parsed.frozen === true;
@@ -305,7 +305,7 @@ function NodeEditor({
       editSummary !== (node.summary ?? "") ||
       editDetail !== (node.detail ?? "") ||
       editPrivacy !== currentPrivacy ||
-      editDecayRate !== currentDecayRate ||
+      editPriorityProfile !== currentPriorityProfile ||
       editFrozen !== currentFrozen;
 
     if (!hasChanges) {
@@ -323,23 +323,30 @@ function NodeEditor({
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
+          const freshNodeForSave = await getNode(selectedNodeId);
+          if (!freshNodeForSave) {
+            throw new Error("Node was deleted before save could complete.");
+          }
           const updated = await updateNode({
             id: selectedNodeId,
             title: editTitle,
             summary: editSummary,
             detail: editDetail,
             privacyTier: editPrivacy,
-            decay: JSON.stringify({
+            priority: JSON.stringify({
               ...(() => {
                 try {
-                  const p = typeof node.decay === "string" ? JSON.parse(node.decay) : node.decay;
+                  const p =
+                    typeof freshNodeForSave.priority === "string"
+                      ? JSON.parse(freshNodeForSave.priority)
+                      : freshNodeForSave.priority;
                   return typeof p === "object" && p !== null ? p : {};
                 } catch {
                   return {};
                 }
               })(),
-              rate: editDecayRate,
-              pinned: editDecayRate === "pinned",
+              profile: editPriorityProfile,
+              pinned: editPriorityProfile === "pinned",
               frozen: editFrozen,
             }),
           });
@@ -347,8 +354,8 @@ function NodeEditor({
             return;
           }
           setNode(updated);
-          if (editDecayRate !== currentDecayRate) {
-            await refreshAllDecayScores();
+          if (editPriorityProfile !== currentPriorityProfile) {
+            await refreshAllPriorityScores();
             const freshNode = await getNode(selectedNodeId);
             if (freshNode && runId === saveRunIdRef.current) {
               setNode(freshNode);
@@ -383,7 +390,7 @@ function NodeEditor({
       window.clearTimeout(timer);
     };
   }, [
-    editDecayRate,
+    editPriorityProfile,
     editDetail,
     editFrozen,
     editPrivacy,
@@ -394,12 +401,12 @@ function NodeEditor({
     selectedNodeId,
   ]);
 
-  const decayScore = useMemo(() => {
-    if (!node?.decay) {
+  const priorityScore = useMemo(() => {
+    if (!node?.priority) {
       return null;
     }
     try {
-      const parsed = typeof node.decay === "string" ? JSON.parse(node.decay) : node.decay;
+      const parsed = typeof node.priority === "string" ? JSON.parse(node.priority) : node.priority;
       if (typeof parsed === "number" && Number.isFinite(parsed)) {
         return parsed;
       }
@@ -410,7 +417,7 @@ function NodeEditor({
         }
       }
     } catch {
-      const fallback = Number(node.decay);
+      const fallback = Number(node.priority);
       if (Number.isFinite(fallback)) {
         return fallback;
       }
@@ -746,9 +753,12 @@ function NodeEditor({
               </span>
             </label>
             {!isLocked && (
-              <label className="editor-decay">
-                <DecayBar score={decayScore} />
-                <select value={editDecayRate} onChange={(e) => setEditDecayRate(e.target.value)}>
+              <label className="editor-priority">
+                <PriorityBar score={priorityScore} />
+                <select
+                  value={editPriorityProfile}
+                  onChange={(e) => setEditPriorityProfile(e.target.value)}
+                >
                   <option value="standard">Standard</option>
                   <option value="slow">Slow</option>
                   <option value="fast">Fast</option>

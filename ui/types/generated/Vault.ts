@@ -7,7 +7,7 @@ export type Vault = {
   icon: string | null;
   description: string | null;
   privacyTier: string;
-  decayRate: string;
+  priorityProfile: string;
   summaryNodeId: string | null;
   sortOrder: number;
   createdAt: string;
