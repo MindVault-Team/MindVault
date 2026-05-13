@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     source TEXT,
     source_type TEXT CHECK (source_type IN ('manual', 'pdf_import', 'transcript_import', 'ai_transfer', 'agent_extract', 'onboarding')),
     privacy_tier TEXT CHECK (privacy_tier IS NULL OR privacy_tier IN ('open', 'local_only', 'locked', 'redacted')),
-    priority TEXT NOT NULL DEFAULT '{"score":0.8,"profile":"standard","pinned":false,"access_count_30active":10,"access_count_90active":10,"access_history":[10],"session_touches":0,"auto_trim_threshold":0.25}',
+    priority TEXT NOT NULL DEFAULT '{"score":0.8,"profile":"standard","pinned":false,"access_count_30active":0,"access_count_90active":0,"access_history":[],"session_touches":0,"auto_trim_threshold":0.25}',
     version INTEGER NOT NULL DEFAULT 1,
     is_archived INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),

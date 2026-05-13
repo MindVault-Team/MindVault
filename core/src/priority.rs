@@ -9,7 +9,7 @@
 // If vault A is active but vault B has no touches, vault B's nodes
 // remain frozen — their access_history does not shift forward.
 
-pub const DEFAULT_PRIORITY_JSON: &str = "{\"score\":0.8,\"profile\":\"standard\",\"pinned\":false,\"access_count_30active\":10,\"access_count_90active\":10,\"access_history\":[10],\"session_touches\":0,\"auto_trim_threshold\":0.25}";
+pub const DEFAULT_PRIORITY_JSON: &str = "{\"score\":0.8,\"profile\":\"standard\",\"pinned\":false,\"access_count_30active\":0,\"access_count_90active\":0,\"access_history\":[],\"session_touches\":0,\"auto_trim_threshold\":0.25}";
 
 /// Maximum score a priority profile can achieve.
 fn max_score(profile: &str) -> f64 {

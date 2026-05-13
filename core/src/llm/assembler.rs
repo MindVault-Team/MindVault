@@ -75,22 +75,7 @@ struct AssemblerNode {
 fn parse_score(priority_json: &str) -> f64 {
     let parsed: Value =
         serde_json::from_str(priority_json).unwrap_or_else(|_| serde_json::json!({}));
-    let access_count = parsed
-        .get("access_count_30active")
-        .and_then(|value| value.as_f64())
-        .or_else(|| {
-            parsed
-                .get("access_count_30d")
-                .and_then(|value| value.as_f64())
-        })
-        .unwrap_or(0.0);
-    let base_score = (access_count / 10.0).clamp(0.1, 1.0);
-    let link_bonus = parsed
-        .get("link_count")
-        .and_then(|value| value.as_f64())
-        .map(|count| (count * 0.05).clamp(0.0, 0.2))
-        .unwrap_or(0.0);
-    base_score + link_bonus
+    parsed.get("score").and_then(|v| v.as_f64()).unwrap_or(0.1)
 }
 
 fn escape_xml_attr(value: &str) -> String {
