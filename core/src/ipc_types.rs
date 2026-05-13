@@ -207,6 +207,22 @@ pub struct OnboardingProposedNode {
     pub resolved_vault_id: Option<String>,
 }
 
+/// Payload for committing accepted onboarding rows to persistent nodes.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../ui/types/generated/")]
+pub struct OnboardingNodeCommitInput {
+    pub vault_id: String,
+    pub title: String,
+    pub summary: String,
+    #[ts(optional)]
+    pub detail: Option<String>,
+    #[ts(optional)]
+    pub node_type: Option<String>,
+    #[ts(optional)]
+    pub source_type: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../ui/types/generated/")]
@@ -259,6 +275,9 @@ mod tests {
         }
         if let Err(err) = OnboardingProposedNode::export() {
             panic!("failed to export OnboardingProposedNode: {err}");
+        }
+        if let Err(err) = OnboardingNodeCommitInput::export() {
+            panic!("failed to export OnboardingNodeCommitInput: {err}");
         }
     }
 }

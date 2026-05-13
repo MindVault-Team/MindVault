@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { OnboardingProposedNode } from "../ipc";
-import { onboardingExtractProposals } from "../ipc";
+import type { OnboardingNodeCommitInput, OnboardingProposedNode } from "../ipc";
+import { onboardingCommit, onboardingExtractProposals } from "../ipc";
 import { unwrapIpcResult } from "../services/ipcResult";
 import { getLlmModels } from "../services/nodes";
 import { listVaults } from "../services/vaults";
@@ -72,7 +72,7 @@ function stepDescription(step: number, stagedCount: number): string {
     return "Configure the same provider/endpoint/model used by chat. Extraction runs when you move to Review.";
   }
   if (step === 2) {
-    return `Review staged proposals before any DB writes. Currently staged: ${stagedCount}.`;
+    return `Review/edit staged proposals before commit. Currently staged: ${stagedCount}.`;
   }
   return "Extraction is complete for this run. Finish onboarding to open MindVault.";
 }
@@ -109,6 +109,25 @@ function buildAnswersJson(answers: BasicsAnswers): string {
   return JSON.stringify(payload, null, 2);
 }
 
+type EditableStagedProposal = {
+  rowId: string;
+  title: string;
+  summary: string;
+  detail: string;
+  nodeType: string;
+  sourceType: string;
+  vaultId: string;
+  category?: string;
+  targetVaultKey?: string;
+};
+
+function newRowId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `onb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 type StatusMessage = { text: string; kind: "info" | "error" };
 
 function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingShellProps) {
@@ -129,15 +148,33 @@ function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingS
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null);
   const [llmBusy, setLlmBusy] = useState(false);
   const [extractBusy, setExtractBusy] = useState(false);
+  const [commitBusy, setCommitBusy] = useState(false);
   const [hasExtracted, setHasExtracted] = useState(false);
-  const [stagedProposals, setStagedProposals] = useState<OnboardingProposedNode[]>([]);
+  const [stagedProposals, setStagedProposals] = useState<EditableStagedProposal[]>([]);
   const [vaultNameById, setVaultNameById] = useState<Record<string, string>>({});
 
   const endpoint = provider === "ollama" ? ollamaEndpoint : lmStudioEndpoint;
-  const shellBusy = busy || llmBusy || extractBusy;
+  const shellBusy = busy || llmBusy || extractBusy || commitBusy;
   const isLastStep = currentStep === STEPS.length - 1;
   const canRunExtraction = selectedModel.trim().length > 0 && endpoint.trim().length > 0;
   const answersJson = useMemo(() => buildAnswersJson(answers), [answers]);
+  const unresolvedCount = useMemo(
+    () => stagedProposals.filter((proposal) => !proposal.vaultId.trim()).length,
+    [stagedProposals]
+  );
+  const vaultOptions = useMemo(() => {
+    const merged = new Map<string, string>(Object.entries(KNOWN_VAULT_DISPLAY_NAMES));
+    for (const [id, name] of Object.entries(vaultNameById)) {
+      merged.set(id, name);
+    }
+    return Array.from(merged.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [vaultNameById]);
+  const availableVaultIds = useMemo(
+    () => new Set(vaultOptions.map((vault) => vault.id)),
+    [vaultOptions]
+  );
 
   const heading = useMemo(() => `${currentStep + 1}. ${STEPS[currentStep]}`, [currentStep]);
   const description = useMemo(
@@ -256,10 +293,13 @@ function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingS
       const extracted = await unwrapIpcResult(
         onboardingExtractProposals(answersJson, provider, endpoint.trim(), selectedModel.trim())
       );
-      setStagedProposals(extracted);
+      const editableRows: EditableStagedProposal[] = extracted.map((proposal) =>
+        mapExtractedProposalToEditable(proposal)
+      );
+      setStagedProposals(editableRows);
       setHasExtracted(true);
       setStatusMessage({
-        text: `Extraction complete. Staged ${extracted.length} proposal(s).`,
+        text: `Extraction complete. Staged ${editableRows.length} proposal(s).`,
         kind: "info",
       });
       return true;
@@ -278,7 +318,98 @@ function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingS
     setCurrentStep((value) => Math.max(0, value - 1));
   }
 
+  function mapExtractedProposalToEditable(
+    proposal: OnboardingProposedNode
+  ): EditableStagedProposal {
+    const resolvedVaultId = proposal.resolvedVaultId ?? "";
+    return {
+      rowId: newRowId(),
+      title: proposal.title ?? "",
+      summary: proposal.summary ?? "",
+      detail: proposal.detail ?? "",
+      nodeType: proposal.nodeType ?? "concept",
+      sourceType: "onboarding",
+      vaultId: availableVaultIds.has(resolvedVaultId) ? resolvedVaultId : "",
+      category: proposal.category,
+      targetVaultKey: proposal.targetVaultKey,
+    };
+  }
+
+  function updateStagedProposal(
+    rowId: string,
+    field: "title" | "summary" | "detail" | "nodeType" | "vaultId",
+    value: string
+  ) {
+    setStagedProposals((current) =>
+      current.map((proposal) =>
+        proposal.rowId === rowId ? { ...proposal, [field]: value } : proposal
+      )
+    );
+  }
+
+  function removeStagedProposal(rowId: string) {
+    setStagedProposals((current) => current.filter((proposal) => proposal.rowId !== rowId));
+  }
+
+  async function commitOnboardingAndFinish() {
+    if (unresolvedCount > 0) {
+      setStatusMessage({
+        text: `Resolve vault assignment for ${unresolvedCount} proposal(s) before commit.`,
+        kind: "error",
+      });
+      return;
+    }
+    const hasInvalidText = stagedProposals.some(
+      (proposal) => !proposal.title.trim() || !proposal.summary.trim()
+    );
+    if (hasInvalidText) {
+      setStatusMessage({
+        text: "Each proposal must have a title and summary before commit.",
+        kind: "error",
+      });
+      return;
+    }
+    const hasUnknownVault = stagedProposals.some(
+      (proposal) => !availableVaultIds.has(proposal.vaultId.trim())
+    );
+    if (hasUnknownVault) {
+      setStatusMessage({
+        text: "One or more selected vaults does not exist in this database. Re-select vaults and try again.",
+        kind: "error",
+      });
+      return;
+    }
+
+    const payload: OnboardingNodeCommitInput[] = stagedProposals.map((proposal) => ({
+      vaultId: proposal.vaultId.trim(),
+      title: proposal.title.trim(),
+      summary: proposal.summary.trim(),
+      detail: proposal.detail.trim() ? proposal.detail.trim() : undefined,
+      nodeType: proposal.nodeType.trim() ? proposal.nodeType.trim() : undefined,
+      sourceType: proposal.sourceType.trim() ? proposal.sourceType.trim() : "onboarding",
+    }));
+
+    setCommitBusy(true);
+    setStatusMessage(null);
+    try {
+      await unwrapIpcResult(onboardingCommit(payload));
+      setStatusMessage({ text: "Onboarding committed. Opening MindVault…", kind: "info" });
+      await onComplete();
+    } catch (error) {
+      setStatusMessage({
+        text: error instanceof Error ? error.message : String(error),
+        kind: "error",
+      });
+    } finally {
+      setCommitBusy(false);
+    }
+  }
+
   async function goNext() {
+    if (currentStep === 2) {
+      await commitOnboardingAndFinish();
+      return;
+    }
     if (currentStep === 1 && !hasExtracted) {
       const ok = await runExtractionOnce();
       if (!ok) {
@@ -439,27 +570,88 @@ function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingS
           {currentStep === 2 ? (
             <div className="onboarding-review-list" aria-label="Staged onboarding proposals">
               {stagedProposals.length === 0 ? (
-                <p className="onboarding-hint">No staged proposals yet.</p>
+                <p className="onboarding-hint">
+                  No staged proposals. You can still commit and finish with zero nodes.
+                </p>
               ) : (
                 stagedProposals.map((proposal, index) => (
-                  <article key={`${proposal.title}-${index}`} className="onboarding-proposal-card">
+                  <article key={`${proposal.rowId}-${index}`} className="onboarding-proposal-card">
                     <div className="onboarding-proposal-header">
-                      <h3>{proposal.title}</h3>
-                      <small>{proposal.nodeType ?? "concept"}</small>
+                      <h3>Proposal {index + 1}</h3>
+                      <small>{proposal.nodeType || "concept"}</small>
                     </div>
-                    <p>{proposal.summary}</p>
+                    <label className="onboarding-field">
+                      <span>Title</span>
+                      <input
+                        type="text"
+                        value={proposal.title}
+                        onChange={(event) =>
+                          updateStagedProposal(proposal.rowId, "title", event.target.value)
+                        }
+                        disabled={shellBusy}
+                      />
+                    </label>
+                    <label className="onboarding-field">
+                      <span>Summary</span>
+                      <textarea
+                        rows={2}
+                        value={proposal.summary}
+                        onChange={(event) =>
+                          updateStagedProposal(proposal.rowId, "summary", event.target.value)
+                        }
+                        disabled={shellBusy}
+                      />
+                    </label>
+                    <label className="onboarding-field">
+                      <span>Detail (optional)</span>
+                      <textarea
+                        rows={2}
+                        value={proposal.detail}
+                        onChange={(event) =>
+                          updateStagedProposal(proposal.rowId, "detail", event.target.value)
+                        }
+                        disabled={shellBusy}
+                      />
+                    </label>
+                    <label className="onboarding-field">
+                      <span>Vault</span>
+                      <select
+                        value={proposal.vaultId}
+                        onChange={(event) =>
+                          updateStagedProposal(proposal.rowId, "vaultId", event.target.value)
+                        }
+                        disabled={shellBusy}
+                      >
+                        <option value="">Choose vault</option>
+                        {vaultOptions.map((vault) => (
+                          <option key={vault.id} value={vault.id}>
+                            {vault.name} ({vault.id})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     <p className="onboarding-meta">
                       Vault target:{" "}
-                      {proposal.resolvedVaultId
+                      {proposal.vaultId
                         ? `${vaultDisplayLabel(
-                            proposal.resolvedVaultId,
-                            vaultNameById[proposal.resolvedVaultId] ?? null
-                          )} (${proposal.resolvedVaultId})`
+                            proposal.vaultId,
+                            vaultNameById[proposal.vaultId] ?? null
+                          )} (${proposal.vaultId})`
                         : "Unmapped — resolve before saving"}
                     </p>
                     <p className="onboarding-meta">
                       Category/key source: {proposal.targetVaultKey ?? proposal.category ?? "none"}
                     </p>
+                    <div className="onboarding-inline-actions">
+                      <button
+                        type="button"
+                        className="onboarding-inline-button"
+                        onClick={() => removeStagedProposal(proposal.rowId)}
+                        disabled={shellBusy}
+                      >
+                        Remove proposal
+                      </button>
+                    </div>
                   </article>
                 ))
               )}
@@ -504,7 +696,7 @@ function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingS
               onClick={() => void goNext()}
               disabled={shellBusy}
             >
-              Next
+              {currentStep === 2 ? "Commit and finish onboarding" : "Next"}
             </button>
           )}
         </footer>

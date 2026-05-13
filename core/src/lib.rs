@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use chat::ChatMessage;
 use rusqlite::{params, Connection, Row};
@@ -15,7 +16,8 @@ pub mod onboarding;
 mod privacy;
 use ipc_types::{
     Backlink, Door, DoorCreateInput, Node, NodeCreateInput, NodeUpdateInput,
-    OnboardingProposedNode, Tag, TagCreateInput, Vault, VaultCreateInput, VaultUpdateInput,
+    OnboardingNodeCommitInput, OnboardingProposedNode, Tag, TagCreateInput, Vault,
+    VaultCreateInput, VaultUpdateInput,
 };
 
 pub(crate) struct DbState {
@@ -80,6 +82,163 @@ fn generate_id(conn: &Connection, prefix: &str) -> Result<String, String> {
         |row| row.get(0),
     )
     .map_err(|err| format!("Failed generating id: {err}"))
+}
+
+fn minimal_pre_write_backup(db_path: &Path, reason: &str) -> Result<PathBuf, String> {
+    let parent = db_path
+        .parent()
+        .ok_or_else(|| format!("Database path has no parent: {}", db_path.display()))?;
+    let backups_dir = parent.join("backups");
+    fs::create_dir_all(&backups_dir).map_err(|err| {
+        format!(
+            "Failed creating backups directory {}: {err}",
+            backups_dir.display()
+        )
+    })?;
+    let now_unix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|err| format!("System clock before UNIX_EPOCH: {err}"))?
+        .as_secs();
+    let backup_path = backups_dir.join(format!("mindvault-pre-{reason}-{now_unix}.db"));
+    fs::copy(db_path, &backup_path).map_err(|err| {
+        format!(
+            "Failed creating pre-write backup {} -> {}: {err}",
+            db_path.display(),
+            backup_path.display()
+        )
+    })?;
+    Ok(backup_path)
+}
+
+type OnboardingDefaultVaultSpec = (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    i64,
+);
+
+fn onboarding_default_vault_spec(vault_id: &str) -> Option<OnboardingDefaultVaultSpec> {
+    match vault_id {
+        "vault_root_graph" => Some((
+            "Root Graph",
+            "root",
+            "Always-loaded cross-vault context graph.",
+            "open",
+            "standard",
+            "{}",
+            0_i64,
+        )),
+        "vault_credentials" => Some((
+            "Credentials",
+            "key",
+            "Local-only secrets and API keys.",
+            "locked",
+            "pinned",
+            "{}",
+            1_i64,
+        )),
+        "vault_personal" => Some((
+            "Personal",
+            "user",
+            "Identity, preferences, interests, and personal context.",
+            "open",
+            "standard",
+            "{}",
+            2_i64,
+        )),
+        "vault_work" => Some((
+            "Work",
+            "briefcase",
+            "Professional goals, projects, and operating context.",
+            "open",
+            "standard",
+            "{}",
+            3_i64,
+        )),
+        "vault_learning" => Some((
+            "Learning",
+            "book",
+            "Skills, study notes, and ongoing learning tracks.",
+            "open",
+            "standard",
+            "{}",
+            4_i64,
+        )),
+        "vault_health" => Some((
+            "Health",
+            "heart",
+            "Well-being routines, health notes, and constraints.",
+            "local_only",
+            "standard",
+            "{}",
+            5_i64,
+        )),
+        "vault_finance" => Some((
+            "Finance",
+            "coins",
+            "Budgets, financial plans, and money-related context.",
+            "local_only",
+            "standard",
+            "{}",
+            6_i64,
+        )),
+        _ => None,
+    }
+}
+
+fn ensure_onboarding_vault_exists(conn: &Connection, vault_id: &str) -> Result<(), String> {
+    if fetch_vault_by_id(conn, vault_id).is_ok() {
+        return Ok(());
+    }
+    let Some((name, icon, description, privacy_tier, decay_rate, meta, sort_order)) =
+        onboarding_default_vault_spec(vault_id)
+    else {
+        return Err(format!(
+            "Invalid onboarding commit vault_id '{vault_id}': no matching vault and not a known onboarding default"
+        ));
+    };
+
+    let revived = conn
+        .execute(
+            "UPDATE vaults
+             SET deleted_at = NULL,
+                 updated_at = datetime('now')
+             WHERE id = ?1;",
+            [vault_id],
+        )
+        .map_err(|err| format!("Failed reviving onboarding vault '{vault_id}': {err}"))?;
+    if revived > 0 {
+        return fetch_vault_by_id(conn, vault_id)
+            .map(|_| ())
+            .map_err(|err| {
+                format!("Failed fetching revived onboarding vault '{vault_id}': {err}")
+            });
+    }
+
+    conn.execute(
+        "INSERT OR IGNORE INTO vaults (id, name, icon, description, privacy_tier, decay_rate, sort_order, meta)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8);",
+        params![
+            vault_id,
+            name,
+            icon,
+            description,
+            privacy_tier,
+            decay_rate,
+            sort_order,
+            meta
+        ],
+    )
+    .map_err(|err| format!("Failed creating missing onboarding vault '{vault_id}': {err}"))?;
+
+    fetch_vault_by_id(conn, vault_id)
+        .map(|_| ())
+        .map_err(|err| {
+            format!("Failed verifying onboarding vault '{vault_id}' after ensure step: {err}")
+        })
 }
 
 fn vault_from_row(row: &Row<'_>) -> rusqlite::Result<Vault> {
@@ -1266,6 +1425,97 @@ async fn onboarding_extract_proposals(
     Ok(proposals.into_iter().map(map_onboarding_proposed).collect())
 }
 
+#[tauri::command]
+fn onboarding_commit(
+    proposals: Vec<OnboardingNodeCommitInput>,
+    state: tauri::State<'_, DbState>,
+) -> IpcResponse<bool> {
+    into_ipc((|| {
+        if !proposals.is_empty() {
+            let _ = minimal_pre_write_backup(&state.db_path, "onboarding-commit")?;
+        }
+
+        let mut conn = open_connection(&state.db_path)?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("Failed starting onboarding_commit transaction: {err}"))?;
+
+        for proposal in &proposals {
+            let vault_id = proposal.vault_id.trim();
+            if vault_id.is_empty() {
+                return Err("Onboarding commit row is missing vault_id".to_string());
+            }
+            ensure_onboarding_vault_exists(&tx, vault_id)?;
+
+            let title = proposal.title.trim();
+            if title.is_empty() {
+                return Err("Onboarding commit row has empty title".to_string());
+            }
+            let summary = proposal.summary.trim();
+            if summary.is_empty() {
+                return Err("Onboarding commit row has empty summary".to_string());
+            }
+
+            let node_id = generate_id(&tx, "node")?;
+            let node_type = proposal
+                .node_type
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("concept");
+            let source_type = proposal
+                .source_type
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("onboarding");
+            let detail = proposal
+                .detail
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string());
+            let decay = "{\"score\":1.0,\"rate\":\"standard\",\"pinned\":false,\"access_count_30active\":0,\"access_count_90active\":0,\"auto_trim_threshold\":0.25}";
+
+            tx.execute(
+                "INSERT INTO nodes (
+                    id, vault_id, sub_vault_id, node_type, title, summary, detail, source, source_type,
+                    privacy_tier, decay, meta
+                ) VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, ?8, NULL, ?9, ?10);",
+                params![
+                    node_id,
+                    vault_id,
+                    node_type,
+                    title,
+                    summary,
+                    detail,
+                    Some("onboarding_wizard"),
+                    source_type,
+                    decay,
+                    "{}"
+                ],
+            )
+            .map_err(|err| format!("Failed inserting onboarding node: {err}"))?;
+        }
+
+        tx.execute(
+            "INSERT INTO settings (key, value, scope, updated_at)
+             VALUES ('onboarding_complete', 'true', 'global', datetime('now'))
+             ON CONFLICT(key) DO UPDATE
+             SET value = excluded.value,
+                 scope = excluded.scope,
+                 updated_at = datetime('now');",
+            [],
+        )
+        .map_err(|err| format!("Failed setting onboarding_complete=true: {err}"))?;
+
+        tx.commit()
+            .map_err(|err| format!("Failed committing onboarding_commit: {err}"))?;
+
+        Ok(true)
+    })())
+}
+
 fn run_decay_refresh(db_path: &std::path::Path) -> Result<usize, String> {
     let conn = open_connection(db_path)?;
     let mut statement = conn
@@ -1482,7 +1732,8 @@ pub fn run() {
             llm_count_tokens,
             llm_list_models,
             llm_chat,
-            onboarding_extract_proposals
+            onboarding_extract_proposals,
+            onboarding_commit
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {

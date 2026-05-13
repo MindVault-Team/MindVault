@@ -6,6 +6,7 @@ import type {
   Node,
   NodeCreateInput,
   NodeUpdateInput,
+  OnboardingNodeCommitInput,
   OnboardingProposedNode,
   Tag,
   TagCreateInput,
@@ -28,6 +29,7 @@ export type {
   Node,
   NodeCreateInput,
   NodeUpdateInput,
+  OnboardingNodeCommitInput,
   OnboardingProposedNode,
   Tag,
   TagCreateInput,
@@ -234,4 +236,9 @@ export function onboardingExtractProposals(
   })
     .then((ok) => ({ ok }) as IpcResult<OnboardingProposedNode[]>)
     .catch((error) => ({ err: String(error) }) as IpcResult<OnboardingProposedNode[]>);
+}
+
+/** Persist accepted onboarding proposals into nodes and mark onboarding complete. */
+export function onboardingCommit(proposals: OnboardingNodeCommitInput[]) {
+  return invokeTyped<boolean>("onboarding_commit", { proposals });
 }
