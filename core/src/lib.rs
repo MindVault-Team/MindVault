@@ -98,7 +98,7 @@ fn minimal_pre_write_backup(db_path: &Path, reason: &str) -> Result<PathBuf, Str
     let now_unix = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|err| format!("System clock before UNIX_EPOCH: {err}"))?
-        .as_secs();
+        .as_millis();
     let backup_path = backups_dir.join(format!("mindvault-pre-{reason}-{now_unix}.db"));
 
     let conn =
