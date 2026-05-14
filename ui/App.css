@@ -636,6 +636,106 @@ body,
   color: #7f97c9;
 }
 
+/* -----------------------------------------------------------------------
+   Structured Tree Navigation — search dimming, path highlighting, inline nodes
+   ----------------------------------------------------------------------- */
+
+/* Search result count badge */
+.search-result-count {
+  margin: -6px 0 8px;
+  font-size: 0.78rem;
+  color: #8fa8d4;
+  letter-spacing: 0.02em;
+}
+
+/* Dim non-matching tree items — smooth transition so items fade in/out */
+.tree-dimmed {
+  opacity: 0.3;
+  pointer-events: auto;
+  transition: opacity 0.22s ease;
+}
+
+.tree-dimmed:hover {
+  opacity: 0.55;
+}
+
+/* Highlight matching tree items with a subtle left-border accent */
+.tree-match {
+  border-left: 2px solid rgba(111, 190, 255, 0.7);
+  border-radius: 0;
+}
+
+.tree-match .list-main {
+  border-color: rgba(111, 190, 255, 0.4);
+  background: rgba(111, 190, 255, 0.08);
+}
+
+/* Inline node list under vault/sub-vault tree entries */
+.tree-node-list {
+  list-style: none;
+  margin: 4px 0 2px;
+  padding: 0 0 0 32px;
+  display: grid;
+  gap: 4px;
+}
+
+.tree-node-item {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  color: #d0daf2;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 6px 9px;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.tree-node-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.tree-node-item.tree-match {
+  border-left: 2px solid rgba(111, 190, 255, 0.7);
+  background: rgba(111, 190, 255, 0.06);
+}
+
+.tree-node-icon {
+  font-size: 0.78rem;
+  line-height: 1.2rem;
+  flex-shrink: 0;
+}
+
+.tree-node-text {
+  display: grid;
+  gap: 1px;
+  width: 100%;
+  min-width: 0;
+}
+
+.tree-node-text strong {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #d8e3ff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-node-text small {
+  color: #97a7cb;
+  font-size: 0.74rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .list-item small {
   color: #b8c0d9;
 }

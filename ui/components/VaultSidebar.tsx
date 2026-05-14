@@ -1,13 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Node, Vault } from "../ipc";
 import { getAllNodes } from "../services/nodes";
-import {
-  createVault,
-  deleteVault,
-  listVaults,
-  resolveVaultPath,
-  updateVault,
-} from "../services/vaults";
+import { createVault, deleteVault, listVaults, updateVault } from "../services/vaults";
 import { isAuthSetup, setMasterPassword, verifyMasterPassword } from "../services/auth";
 import { AppError } from "../services/ipcResult";
 import { PrivacyBadge } from "./PrivacyBadge";
@@ -26,6 +20,18 @@ type VaultSidebarProps = {
   setIsRedactedUnlocked: (value: boolean) => void;
 };
 
+/**
+ * Structured Tree Navigation sidebar.
+ *
+ * When the user types a search query:
+ * - ALL vaults remain visible (never removed from DOM).
+ * - Vaults / sub-vaults / nodes that do NOT match are rendered with an
+ *   opacity-dimmed class (`tree-dimmed`) so they fade into the background.
+ * - Vaults that contain a match are auto-expanded and highlighted with a
+ *   subtle glow class (`tree-match`).
+ * - Matching nodes appear inline under their parent vault, showing the
+ *   breadcrumb path.
+ */
 function VaultSidebar({
   selectedVaultId,
   refreshKey,
@@ -325,8 +331,20 @@ function VaultSidebar({
   }
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
+  const isSearching = normalizedQuery.length > 0;
 
-  const { topLevelVaults, childrenByParent, searchNodesByTopLevel } = useMemo(() => {
+  // ---------------------------------------------------------------------------
+  // Build structured tree data with search-match metadata
+  // ---------------------------------------------------------------------------
+  const {
+    topLevelVaults,
+    childrenByParent,
+    nodesByVaultId,
+    matchingVaultIds,
+    matchingSubVaultIds,
+    matchingNodeIds,
+    resultCount,
+  } = useMemo(() => {
     const childMap = new Map<string, Vault[]>();
     for (const vault of vaults) {
       if (!vault.parentVaultId) {
@@ -344,59 +362,100 @@ function VaultSidebar({
     const roots = vaults.filter((vault) => !vault.parentVaultId);
     roots.sort((a, b) => a.name.localeCompare(b.name));
 
+    // Group nodes by their "tree parent" vault id
+    // (sub-vault id if present, otherwise top-level vault id)
+    const nodeMap = new Map<string, Node[]>();
+    for (const node of allNodes) {
+      const parentKey = node.subVaultId ?? node.vaultId;
+      const existing = nodeMap.get(parentKey) ?? [];
+      existing.push(node);
+      nodeMap.set(parentKey, existing);
+    }
+
+    // Without a search query, show everything normally
     if (!normalizedQuery) {
       return {
         topLevelVaults: roots,
         childrenByParent: childMap,
-        searchNodesByTopLevel: new Map<string, Node[]>(),
+        nodesByVaultId: nodeMap,
+        matchingVaultIds: new Set<string>(),
+        matchingSubVaultIds: new Set<string>(),
+        matchingNodeIds: new Set<string>(),
+        resultCount: 0,
       };
     }
 
-    const filteredRoots: Vault[] = [];
-    const filteredChildMap = new Map<string, Vault[]>();
-    const nodeMap = new Map<string, Node[]>();
+    // With a search query, compute which items match
+    const matchVaults = new Set<string>();
+    const matchSubVaults = new Set<string>();
+    const matchNodes = new Set<string>();
+    let count = 0;
 
-    const matchingNodes = allNodes.filter((node) => {
-      const title = node.title.toLowerCase();
-      const summary = node.summary.toLowerCase();
-      return title.includes(normalizedQuery) || summary.includes(normalizedQuery);
-    });
+    // Find matching nodes
+    for (const node of allNodes) {
+      const titleMatch = node.title.toLowerCase().includes(normalizedQuery);
+      const summaryMatch = node.summary.toLowerCase().includes(normalizedQuery);
+      if (titleMatch || summaryMatch) {
+        matchNodes.add(node.id);
+        count++;
+        // Mark parent vault/sub-vault as containing a match
+        if (node.subVaultId) {
+          matchSubVaults.add(node.subVaultId);
+          // Also find the root vault for this sub-vault
+          const subVault = vaults.find((v) => v.id === node.subVaultId);
+          if (subVault?.parentVaultId) {
+            matchVaults.add(subVault.parentVaultId);
+          }
+        }
+        matchVaults.add(node.vaultId);
+      }
+    }
 
-    for (const root of roots) {
-      const rootMatches = root.name.toLowerCase().includes(normalizedQuery);
-      const children = childMap.get(root.id) ?? [];
-      const childNameMatches = children.filter((child) =>
-        child.name.toLowerCase().includes(normalizedQuery)
-      );
-      const childIds = new Set(children.map((child) => child.id));
-      const rootNodes = matchingNodes.filter(
-        (node) =>
-          node.vaultId === root.id || (node.subVaultId ? childIds.has(node.subVaultId) : false)
-      );
-      const childNodeMatchIds = new Set(
-        rootNodes
-          .map((node) => node.subVaultId)
-          .filter((subVaultId): subVaultId is string => Boolean(subVaultId))
-      );
-      const matchingChildren = children.filter(
-        (child) =>
-          childNameMatches.some((matchedChild) => matchedChild.id === child.id) ||
-          childNodeMatchIds.has(child.id)
-      );
-
-      if (rootMatches || matchingChildren.length > 0 || rootNodes.length > 0) {
-        filteredRoots.push(root);
-        filteredChildMap.set(root.id, rootMatches ? children : matchingChildren);
-        nodeMap.set(root.id, rootNodes);
+    // Find matching vaults by name
+    for (const vault of vaults) {
+      if (vault.name.toLowerCase().includes(normalizedQuery)) {
+        if (vault.parentVaultId) {
+          matchSubVaults.add(vault.id);
+          matchVaults.add(vault.parentVaultId);
+        } else {
+          matchVaults.add(vault.id);
+        }
+        count++;
       }
     }
 
     return {
-      topLevelVaults: filteredRoots,
-      childrenByParent: filteredChildMap,
-      searchNodesByTopLevel: nodeMap,
+      topLevelVaults: roots,
+      childrenByParent: childMap,
+      nodesByVaultId: nodeMap,
+      matchingVaultIds: matchVaults,
+      matchingSubVaultIds: matchSubVaults,
+      matchingNodeIds: matchNodes,
+      resultCount: count,
     };
   }, [allNodes, normalizedQuery, vaults]);
+
+  // ---------------------------------------------------------------------------
+  // Helpers for determining match/dim state
+  // ---------------------------------------------------------------------------
+  function isVaultOnMatchPath(vaultId: string): boolean {
+    return matchingVaultIds.has(vaultId);
+  }
+
+  function isSubVaultMatch(subVaultId: string): boolean {
+    return matchingSubVaultIds.has(subVaultId);
+  }
+
+  function isNodeMatch(nodeId: string): boolean {
+    return matchingNodeIds.has(nodeId);
+  }
+
+  /** Whether a vault should be expanded (user toggle OR search auto-expand). */
+  function shouldExpand(vaultId: string, hasChildren: boolean): boolean {
+    if (!hasChildren) return false;
+    if (isSearching && isVaultOnMatchPath(vaultId)) return true;
+    return expandedVaults[vaultId] ?? false;
+  }
 
   return (
     <aside className="pane pane-left">
@@ -412,28 +471,46 @@ function VaultSidebar({
       <input
         type="search"
         className="vault-search"
-        placeholder="Search vaults..."
+        placeholder="Search vaults & nodes..."
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
       />
+      {isSearching && (
+        <p className="search-result-count">
+          {resultCount === 0
+            ? "No results"
+            : `${resultCount} result${resultCount !== 1 ? "s" : ""}`}
+        </p>
+      )}
       {error && <p className="pane-error">{error}</p>}
       <ul className="vault-list">
         {topLevelVaults.map((vault) => {
           const effectiveTier = getEffectivePrivacy(vault.privacyTier);
           const children = childrenByParent.get(vault.id) ?? [];
-          const matchingNodes = searchNodesByTopLevel.get(vault.id) ?? [];
-          const expanded = normalizedQuery ? true : (expandedVaults[vault.id] ?? false);
+          const vaultNodes = nodesByVaultId.get(vault.id) ?? [];
+          const hasExpandableContent = children.length > 0 || vaultNodes.length > 0;
+          const expanded =
+            shouldExpand(vault.id, hasExpandableContent) || (expandedVaults[vault.id] ?? false);
+
+          // Dimming logic: when searching, dim everything that is NOT on a match path
+          const isDimmed = isSearching && !isVaultOnMatchPath(vault.id);
+          const isHighlighted = isSearching && isVaultOnMatchPath(vault.id);
+
           return (
-            <li key={vault.id}>
-              <div className={`list-item ${selectedVaultId === vault.id ? "active" : ""}`}>
+            <li key={vault.id} className={isDimmed ? "tree-dimmed" : ""}>
+              <div
+                className={`list-item ${selectedVaultId === vault.id ? "active" : ""} ${
+                  isHighlighted ? "tree-match" : ""
+                }`}
+              >
                 <button
                   type="button"
-                  className={`tree-toggle ${children.length === 0 ? "empty" : ""}`}
+                  className={`tree-toggle ${!hasExpandableContent ? "empty" : ""}`}
                   onClick={() => onToggleExpand(vault.id)}
-                  disabled={children.length === 0}
+                  disabled={!hasExpandableContent}
                   aria-label={expanded ? `Collapse ${vault.name}` : `Expand ${vault.name}`}
                 >
-                  {children.length === 0 ? "" : expanded ? "v" : ">"}
+                  {!hasExpandableContent ? "" : expanded ? "▾" : "▸"}
                 </button>
                 <div className="vault-header">
                   <button
@@ -475,17 +552,42 @@ function VaultSidebar({
                   </div>
                 </div>
               </div>
-              {children.length > 0 && expanded && (
+
+              {/* ----- Expanded children: Sub-Vaults ----- */}
+              {expanded && children.length > 0 && (
                 <ul className="sub-vault-list">
                   {children.map((child) => {
-                    const effectiveTier = getEffectivePrivacy(child.privacyTier, vault.privacyTier);
+                    const childEffectiveTier = getEffectivePrivacy(
+                      child.privacyTier,
+                      vault.privacyTier
+                    );
+                    const childNodes = nodesByVaultId.get(child.id) ?? [];
+                    const childIsDimmed =
+                      isSearching && !isSubVaultMatch(child.id) && !isVaultOnMatchPath(child.id);
+                    const childIsHighlighted = isSearching && isSubVaultMatch(child.id);
+                    const childHasContent = childNodes.length > 0;
+                    const childExpanded =
+                      (isSearching && isSubVaultMatch(child.id)) ||
+                      (expandedVaults[child.id] ?? false);
+
                     return (
-                      <li key={child.id}>
+                      <li key={child.id} className={childIsDimmed ? "tree-dimmed" : ""}>
                         <div
                           className={`list-item sub sub-vault-item ${
-                            selectedVaultId === (child.parentVaultId ?? child.id) ? "active" : ""
-                          }`}
+                            selectedVaultId === child.id ? "active" : ""
+                          } ${childIsHighlighted ? "tree-match" : ""}`}
                         >
+                          <button
+                            type="button"
+                            className={`tree-toggle ${!childHasContent ? "empty" : ""}`}
+                            onClick={() => onToggleExpand(child.id)}
+                            disabled={!childHasContent}
+                            aria-label={
+                              childExpanded ? `Collapse ${child.name}` : `Expand ${child.name}`
+                            }
+                          >
+                            {!childHasContent ? "" : childExpanded ? "▾" : "▸"}
+                          </button>
                           <button
                             type="button"
                             className="list-main"
@@ -493,7 +595,7 @@ function VaultSidebar({
                           >
                             <span className="list-title-row">
                               <span className="list-title-text">{child.name}</span>
-                              <PrivacyBadge tier={effectiveTier} />
+                              <PrivacyBadge tier={childEffectiveTier} />
                             </span>
                             {child.description && <small>{child.description}</small>}
                           </button>
@@ -501,7 +603,7 @@ function VaultSidebar({
                             <button
                               type="button"
                               className="list-settings"
-                              onClick={() => onUpdateVaultPrivacy(child, effectiveTier)}
+                              onClick={() => onUpdateVaultPrivacy(child, childEffectiveTier)}
                               aria-label={`Update settings for ${child.name}`}
                             >
                               ⚙️
@@ -516,31 +618,61 @@ function VaultSidebar({
                             </button>
                           </div>
                         </div>
+
+                        {/* ----- Inline nodes under sub-vault ----- */}
+                        {childExpanded && childNodes.length > 0 && (
+                          <ul className="tree-node-list">
+                            {childNodes.map((node) => {
+                              const nodeDimmed = isSearching && !isNodeMatch(node.id);
+                              const nodeHighlighted = isSearching && isNodeMatch(node.id);
+                              return (
+                                <li key={node.id} className={nodeDimmed ? "tree-dimmed" : ""}>
+                                  <button
+                                    type="button"
+                                    className={`tree-node-item ${
+                                      nodeHighlighted ? "tree-match" : ""
+                                    }`}
+                                    onClick={() => onSelectNodeEntry(node)}
+                                  >
+                                    <span className="tree-node-icon">📄</span>
+                                    <span className="tree-node-text">
+                                      <strong>{node.title}</strong>
+                                      <small>{node.summary.slice(0, 60)}</small>
+                                    </span>
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
                       </li>
                     );
                   })}
                 </ul>
               )}
-              {normalizedQuery && matchingNodes.length > 0 && (
-                <ul className="search-node-list">
-                  {matchingNodes.map((node) => (
-                    <li key={node.id}>
-                      <button
-                        type="button"
-                        className="search-node-item"
-                        onClick={() => onSelectNodeEntry(node)}
-                      >
-                        <span className="search-node-icon">f</span>
-                        <span className="search-node-text">
-                          <strong>{node.title}</strong>
-                          <small>{node.summary.slice(0, 72)}</small>
-                          <small className="search-node-context">
-                            📁 {resolveVaultPath(node, vaults)}
-                          </small>
-                        </span>
-                      </button>
-                    </li>
-                  ))}
+
+              {/* ----- Inline nodes directly under the vault (no sub-vault) ----- */}
+              {expanded && vaultNodes.length > 0 && (
+                <ul className="tree-node-list">
+                  {vaultNodes.map((node) => {
+                    const nodeDimmed = isSearching && !isNodeMatch(node.id);
+                    const nodeHighlighted = isSearching && isNodeMatch(node.id);
+                    return (
+                      <li key={node.id} className={nodeDimmed ? "tree-dimmed" : ""}>
+                        <button
+                          type="button"
+                          className={`tree-node-item ${nodeHighlighted ? "tree-match" : ""}`}
+                          onClick={() => onSelectNodeEntry(node)}
+                        >
+                          <span className="tree-node-icon">📄</span>
+                          <span className="tree-node-text">
+                            <strong>{node.title}</strong>
+                            <small>{node.summary.slice(0, 60)}</small>
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </li>
