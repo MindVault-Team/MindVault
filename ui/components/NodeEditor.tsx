@@ -68,6 +68,17 @@ function NodeEditor({
   const saveRunIdRef = useRef(0);
   const saveStatusTimeoutRef = useRef<number | null>(null);
 
+  // --- Wikilink autocomplete state ---
+  const [wikilinkOpen, setWikilinkOpen] = useState(false);
+  const [wikilinkQuery, setWikilinkQuery] = useState("");
+  const [wikilinkCursorPos, setWikilinkCursorPos] = useState(0);
+  const [wikilinkDropdownPos, setWikilinkDropdownPos] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+  const detailRef = useRef<HTMLTextAreaElement | null>(null);
+  const allNodesRef = useRef<Node[]>([]);
+
   async function refreshAvailableTags() {
     const result = await listTags();
     if (result.error) {
@@ -100,6 +111,64 @@ function NodeEditor({
       setStatus(incoming.error.message);
     } else {
       setIncomingDoors(incoming.data ?? []);
+    }
+  }
+
+  // --- Wikilink helpers ---
+
+  /** Parse all [[Name]] references from a string. */
+  function parseWikilinks(text: string): string[] {
+    const regex = /\[\[([^\]]+)\]\]/g;
+    const names: string[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(text)) !== null) {
+      names.push(m[1]);
+    }
+    return names;
+  }
+
+  /**
+   * After a save, scan the detail text for [[NodeName]] references
+   * and auto-create Doors for any that don't already exist.
+   */
+  async function syncWikilinkDoors(sourceNodeId: string, detailText: string) {
+    const names = parseWikilinks(detailText);
+    if (names.length === 0) return;
+
+    // Build a title→node lookup (case-insensitive)
+    const titleMap = new Map<string, Node>();
+    for (const n of allNodesRef.current) {
+      titleMap.set(n.title.toLowerCase(), n);
+    }
+
+    // Fetch current outgoing doors to avoid duplicates
+    const currentOutgoing = await listOutgoingDoors(sourceNodeId);
+    const existingTargetIds = new Set<string>();
+    if (!currentOutgoing.error && currentOutgoing.data) {
+      for (const d of currentOutgoing.data) {
+        if (d.targetNodeId) existingTargetIds.add(d.targetNodeId);
+      }
+    }
+
+    let created = false;
+    for (const name of names) {
+      const target = titleMap.get(name.toLowerCase());
+      if (!target || target.id === sourceNodeId) continue;
+      if (existingTargetIds.has(target.id)) continue;
+
+      const result = await createDoor({
+        sourceNodeId,
+        targetNodeId: target.id,
+        label: "wikilink",
+      });
+      if (!result.error) {
+        existingTargetIds.add(target.id);
+        created = true;
+      }
+    }
+
+    if (created) {
+      await refreshDoors(sourceNodeId);
     }
   }
 
@@ -201,6 +270,7 @@ function NodeEditor({
           }
           setAllNodes(nodes);
           setAllNodesMap(map);
+          allNodesRef.current = nodes;
         } catch (err) {
           if (err instanceof AppError) {
             setStatus(err.message);
@@ -361,6 +431,8 @@ function NodeEditor({
               setNode(freshNode);
             }
           }
+          // Sync wikilink [[NodeName]] references to Doors
+          void syncWikilinkDoors(selectedNodeId, editDetail);
           setSaveStatus("saved");
           onSaveSuccess();
           if (saveStatusTimeoutRef.current !== null) {
@@ -389,6 +461,7 @@ function NodeEditor({
       window.clearTimeout(statusTimer);
       window.clearTimeout(timer);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     editPriorityProfile,
     editDetail,
@@ -478,6 +551,96 @@ function NodeEditor({
       );
     });
   }, [allNodes, connectedTargetIds, doorSearchQuery, node]);
+
+  // --- Wikilink autocomplete suggestions ---
+  const wikilinkSuggestions = useMemo(() => {
+    if (!wikilinkOpen || !node) return [];
+    const q = wikilinkQuery.toLowerCase();
+    return allNodes
+      .filter((n) => n.id !== node.id && n.title.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [allNodes, node, wikilinkOpen, wikilinkQuery]);
+
+  // --- Wikilink helpers ---
+
+  /** Handle keystrokes in the detail textarea for [[ trigger. */
+  function onDetailKeyUp(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    const ta = e.currentTarget;
+    const pos = ta.selectionStart;
+    const text = ta.value;
+
+    // Look backward from cursor for an unclosed [[
+    const before = text.slice(0, pos);
+    const openIdx = before.lastIndexOf("[[");
+    if (openIdx === -1) {
+      if (wikilinkOpen) setWikilinkOpen(false);
+      return;
+    }
+
+    // Make sure there's no ]] between [[ and cursor
+    const segment = before.slice(openIdx + 2);
+    if (segment.includes("]]")) {
+      if (wikilinkOpen) setWikilinkOpen(false);
+      return;
+    }
+
+    // We have an open [[ — compute the query and dropdown position
+    setWikilinkQuery(segment);
+    setWikilinkCursorPos(pos);
+    setWikilinkOpen(true);
+
+    // Position dropdown relative to the textarea
+    if (detailRef.current) {
+      const rect = detailRef.current.getBoundingClientRect();
+      // Approximate line position (rough but good enough for a dropdown)
+      const lineHeight = 20;
+      const lines = before.split("\n");
+      const lineNum = lines.length;
+      const scrollTop = detailRef.current.scrollTop;
+      setWikilinkDropdownPos({
+        top: rect.top + Math.min(lineNum * lineHeight, rect.height) - scrollTop,
+        left: rect.left + 20,
+      });
+    }
+  }
+
+  /** Insert the selected wikilink into the detail textarea. */
+  function insertWikilink(targetNode: Node) {
+    const ta = detailRef.current;
+    if (!ta) return;
+
+    const text = editDetail;
+    const pos = wikilinkCursorPos;
+    const before = text.slice(0, pos);
+    const openIdx = before.lastIndexOf("[[");
+    if (openIdx === -1) return;
+
+    const replacement = `[[${targetNode.title}]]`;
+    const newText = text.slice(0, openIdx) + replacement + text.slice(pos);
+    setEditDetail(newText);
+    setWikilinkOpen(false);
+    setWikilinkQuery("");
+
+    // Also immediately create the Door if it doesn't exist
+    if (node && !connectedTargetIds.has(targetNode.id)) {
+      void createDoor({
+        sourceNodeId: node.id,
+        targetNodeId: targetNode.id,
+        label: "wikilink",
+      }).then((result) => {
+        if (!result.error && node) {
+          void refreshDoors(node.id);
+        }
+      });
+    }
+
+    // Restore cursor position after React re-render
+    const newCursorPos = openIdx + replacement.length;
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(newCursorPos, newCursorPos);
+    });
+  }
 
   const { parentTier, effectivePrivacyTier } = useMemo(() => {
     if (!node) {
@@ -878,12 +1041,50 @@ function NodeEditor({
                 onChange={(e) => setEditSummary(e.target.value)}
                 placeholder="Summary"
               />
-              <textarea
-                className="editor-detail"
-                value={editDetail}
-                onChange={(e) => setEditDetail(e.target.value)}
-                placeholder="Detail"
-              />
+              <div className="wikilink-wrapper">
+                <textarea
+                  ref={detailRef}
+                  className="editor-detail"
+                  value={editDetail}
+                  onChange={(e) => setEditDetail(e.target.value)}
+                  onKeyUp={onDetailKeyUp}
+                  onBlur={() => {
+                    window.setTimeout(() => setWikilinkOpen(false), 150);
+                  }}
+                  placeholder="Detail — type [[ to link to another node"
+                />
+                {wikilinkOpen && wikilinkSuggestions.length > 0 && (
+                  <div
+                    className="wikilink-dropdown"
+                    style={
+                      wikilinkDropdownPos
+                        ? {
+                            position: "fixed",
+                            top: wikilinkDropdownPos.top,
+                            left: wikilinkDropdownPos.left,
+                          }
+                        : undefined
+                    }
+                  >
+                    <div className="wikilink-dropdown-header">Link to node</div>
+                    {wikilinkSuggestions.map((target) => (
+                      <button
+                        key={target.id}
+                        type="button"
+                        className="wikilink-option"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => insertWikilink(target)}
+                      >
+                        <span className="wikilink-option-icon">🔗</span>
+                        <span className="wikilink-option-text">
+                          <strong>{target.title}</strong>
+                          <small>{target.summary.slice(0, 50)}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div className="connections-section">
                 <div className="connections-header">
                   <h4>Connections</h4>
