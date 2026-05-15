@@ -48,56 +48,6 @@ body,
   accent-color: #8fb8ff;
 }
 
-.search-node-list {
-  list-style: none;
-  margin: 6px 0 0;
-  padding: 0 0 0 28px;
-  display: grid;
-  gap: 6px;
-}
-
-.search-node-item {
-  width: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
-  color: #d5ddf5;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 10px;
-  cursor: pointer;
-  text-align: left;
-}
-
-.search-node-icon {
-  color: #8fb8ff;
-  font-size: 0.8rem;
-  line-height: 1.2rem;
-  flex-shrink: 0;
-}
-
-.search-node-text {
-  display: grid;
-  gap: 2px;
-  width: 100%;
-}
-
-.search-node-text strong {
-  font-size: 0.86rem;
-  font-weight: 600;
-  color: #dce7ff;
-}
-
-.search-node-text small {
-  color: #9eabcf;
-  font-size: 0.78rem;
-}
-
-.search-node-context {
-  color: #7f97c9;
-}
-
 .right-pane-stack {
   display: flex;
   flex-direction: column;

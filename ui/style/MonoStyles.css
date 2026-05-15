@@ -1,4 +1,4 @@
-/* This file imports all the shared styles for the application. */
+/* Global style aggregator and application entrypoint. Imports global variables, resets, and all individual component stylesheets. */
 @import "./Shared.css";
 @import "./App.css";
 @import "./components/ActiveMemoryPanel.css";
