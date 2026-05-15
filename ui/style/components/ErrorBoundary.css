@@ -1,0 +1,19 @@
+.error-boundary {
+  min-height: 100vh;
+  margin: 0;
+  padding: 32px;
+  background: #0c0f1a;
+  color: #ff5b5b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.error-boundary-message {
+  margin: 0;
+  font-size: 0.95rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #ff5b5b;
+}

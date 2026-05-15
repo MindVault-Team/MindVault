@@ -1,0 +1,109 @@
+.llm-settings {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.settings-field {
+  display: grid;
+  gap: 6px;
+  color: #c3cae2;
+  font-size: 0.82rem;
+}
+
+.settings-field input,
+.settings-field select {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  background: rgba(5, 8, 14, 0.55);
+  color: #eff3ff;
+  padding: 10px;
+  font-size: 0.9rem;
+}
+
+.settings-action {
+  border: 1px solid rgba(143, 184, 255, 0.25);
+  border-radius: 10px;
+  background: rgba(143, 184, 255, 0.1);
+  color: #d6e5ff;
+  padding: 9px 12px;
+  font-size: 0.86rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.settings-action:hover {
+  background: rgba(143, 184, 255, 0.18);
+}
+
+.settings-action.save {
+  width: fit-content;
+}
+
+.llm-settings-dev {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  display: grid;
+  gap: 8px;
+}
+
+.llm-settings-dev-title {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #98acd8;
+}
+
+.llm-settings-dev-line {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #c3cae2;
+}
+
+.llm-settings-dev-line strong {
+  color: #e8efff;
+  font-weight: 600;
+}
+
+.llm-settings-dev-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.llm-settings-dev-note {
+  margin: 0;
+  font-size: 0.72rem;
+  color: #7f90b8;
+}
+
+.llm-settings-dev-field {
+  margin-top: 4px;
+}
+
+.llm-settings-dev-json-input {
+  min-height: 120px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.llm-settings-dev-json-preview {
+  margin: 0;
+  padding: 10px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(5, 8, 14, 0.65);
+  color: #c8d4f0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

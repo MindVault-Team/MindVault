@@ -470,7 +470,7 @@ function VaultSidebar({
       </button>
       <input
         type="search"
-        className="vault-search"
+        className="search-input"
         placeholder="Search vaults & nodes..."
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}

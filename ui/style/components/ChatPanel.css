@@ -1,0 +1,194 @@
+.chat-panel {
+  position: relative;
+  z-index: 10;
+  width: min(760px, 92vw);
+  height: min(78vh, 720px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  color: var(--text-black);
+  border-radius: 18px;
+  background: var(--background);
+  backdrop-filter: blur(10px);
+  overflow: hidden;
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px 12px;
+  color: var(--primary-color);
+  background: var(--background);
+  border-bottom: 1px solid var(--background-secondary);
+}
+
+.chat-header h2 {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+}
+
+.chat-header p {
+  margin: 2px 0 0;
+  font-size: 0.74rem;
+  color: var(--text-black);
+}
+
+.chat-clear-btn {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 9px;
+  background: var(--primary-color);
+  color: var(--background);
+  padding: 6px 11px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.chat-clear-btn:hover:not(:disabled) {
+  border: 1px solid var(--primary-color);
+  color: var(--primary-color);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.chat-clear-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.chat-thread {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px 22px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--primary-color) var(--secondary-color);
+}
+
+.chat-thread::-webkit-scrollbar {
+  width: 11px;
+}
+
+.chat-thread::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.chat-thread::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  border: 2px solid rgba(0, 0, 0, 0);
+  background: linear-gradient(180deg, rgba(111, 190, 255, 0.85), rgba(123, 150, 255, 0.8));
+  background-clip: padding-box;
+}
+
+.chat-thread::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(140, 210, 255, 0.95), rgba(148, 172, 255, 0.9));
+  background-clip: padding-box;
+}
+
+.chat-thread:empty::before {
+  content: "Start a conversation with MindVault.";
+  margin: auto;
+  color: #8c98be;
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
+
+.chat-history-trim-note {
+  margin: 0 0 2px;
+  font-size: 0.72rem;
+  color: #8ea2d8;
+  text-align: center;
+}
+
+.chat-message {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.03);
+  padding: 10px 12px;
+  max-width: 85%;
+}
+
+.chat-message-user {
+  align-self: flex-end;
+  background: var(--background-secondary);
+}
+
+.chat-message-assistant {
+  align-self: flex-start;
+  background: var(--background-secondary);
+}
+
+.chat-message header {
+  font-size: 0.7rem;
+  opacity: 0.72;
+  margin-bottom: 4px;
+  text-transform: capitalize;
+  letter-spacing: 0.04em;
+}
+
+.chat-message p {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+
+.chat-input-container {
+  display: grid;
+  gap: 8px;
+  padding: 14px 18px 16px;
+  color: var(--text-black);
+  border-top: 1px solid var(--background-secondary);
+}
+
+.chat-input-container textarea {
+  min-height: 64px;
+  max-height: 200px;
+  resize: vertical;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  background: var(--background-secondary);
+  color: var(--text-black);
+  padding: 10px 12px;
+  font-size: 0.92rem;
+  font-family: inherit;
+}
+
+.chat-input-container textarea:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.chat-input-container button {
+  width: fit-content;
+  border: 1px solid var(--primary-color);
+  border-radius: 10px;
+  background: var(--primary-color);
+  color: var(--background);
+  padding: 8px 16px;
+  font-size: 0.86rem;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.chat-input-container button:hover:not(:disabled) {
+  background: var(--background-secondary);
+  color: var(--primary-color);
+}
+
+.chat-input-container button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.chat-status {
+  margin: 0;
+  padding: 0 18px 12px;
+  color: #ffb8b8;
+  font-size: 0.78rem;
+}
