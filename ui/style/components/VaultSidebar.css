@@ -16,8 +16,7 @@
   background: rgba(143, 184, 255, 0.16);
 }
 
-.vault-search,
-.search-input {
+.vault-search {
   width: 100%;
   margin: 0 0 12px;
   border: 1px solid rgba(255, 255, 255, 0.18);
