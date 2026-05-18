@@ -9,7 +9,7 @@ use tauri::Manager;
 
 mod auth;
 mod chat;
-mod ipc_types;
+pub mod ipc_types;
 pub mod llm;
 pub mod onboarding;
 mod priority;
@@ -84,7 +84,7 @@ fn generate_id(conn: &Connection, prefix: &str) -> Result<String, String> {
     .map_err(|err| format!("Failed generating id: {err}"))
 }
 
-fn minimal_pre_write_backup(db_path: &Path, reason: &str) -> Result<PathBuf, String> {
+pub fn minimal_pre_write_backup(db_path: &Path, reason: &str) -> Result<PathBuf, String> {
     let parent = db_path
         .parent()
         .ok_or_else(|| format!("Database path has no parent: {}", db_path.display()))?;
@@ -200,7 +200,7 @@ fn onboarding_default_vault_spec(vault_id: &str) -> Option<OnboardingDefaultVaul
     }
 }
 
-fn ensure_onboarding_vault_exists(conn: &Connection, vault_id: &str) -> Result<(), String> {
+pub fn ensure_onboarding_vault_exists(conn: &Connection, vault_id: &str) -> Result<(), String> {
     if fetch_vault_by_id(conn, vault_id).is_ok() {
         return Ok(());
     }
@@ -1453,9 +1453,16 @@ fn onboarding_commit(
     proposals: Vec<OnboardingNodeCommitInput>,
     state: tauri::State<'_, DbState>,
 ) -> IpcResponse<bool> {
-    into_ipc((|| {
+    into_ipc(execute_onboarding_commit(&proposals, &state.db_path))
+}
+
+pub fn execute_onboarding_commit(
+    proposals: &[OnboardingNodeCommitInput],
+    db_path: &Path,
+) -> Result<bool, String> {
+    (|| {
         // 1. Validate all proposals first
-        for proposal in &proposals {
+        for proposal in proposals {
             let vault_id = proposal.vault_id.trim();
             if vault_id.is_empty() {
                 return Err("Onboarding commit row is missing vault_id".to_string());
@@ -1520,16 +1527,16 @@ fn onboarding_commit(
 
         // 2. Take pre-write backup (expensive, only run if payload is completely valid)
         if !proposals.is_empty() {
-            let _ = minimal_pre_write_backup(&state.db_path, "onboarding-commit")?;
+            let _ = minimal_pre_write_backup(db_path, "onboarding-commit")?;
         }
 
-        let mut conn = open_connection(&state.db_path)?;
+        let mut conn = open_connection(db_path)?;
         let tx = conn
             .transaction()
             .map_err(|err| format!("Failed starting onboarding_commit transaction: {err}"))?;
 
         // 3. Process and write
-        for proposal in &proposals {
+        for proposal in proposals {
             let vault_id = proposal.vault_id.trim();
             if vault_id.is_empty() {
                 return Err("Onboarding commit row is missing vault_id".to_string());
@@ -1634,7 +1641,7 @@ fn onboarding_commit(
             .map_err(|err| format!("Failed committing onboarding_commit: {err}"))?;
 
         Ok(true)
-    })())
+    })()
 }
 
 fn run_priority_refresh(db_path: &std::path::Path) -> Result<usize, String> {
