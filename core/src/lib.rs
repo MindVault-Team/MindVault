@@ -84,7 +84,11 @@ fn generate_id(conn: &Connection, prefix: &str) -> Result<String, String> {
     .map_err(|err| format!("Failed generating id: {err}"))
 }
 
-pub fn minimal_pre_write_backup(db_path: &Path, reason: &str) -> Result<PathBuf, String> {
+pub fn minimal_pre_write_backup(
+    conn: &Connection,
+    db_path: &Path,
+    reason: &str,
+) -> Result<PathBuf, String> {
     let parent = db_path
         .parent()
         .ok_or_else(|| format!("Database path has no parent: {}", db_path.display()))?;
@@ -101,24 +105,54 @@ pub fn minimal_pre_write_backup(db_path: &Path, reason: &str) -> Result<PathBuf,
         .as_millis();
     let backup_path = backups_dir.join(format!("mindvault-pre-{reason}-{now_unix}.db"));
 
-    let conn =
-        Connection::open(db_path).map_err(|err| format!("Failed to open DB for backup: {err}"))?;
+    let mut backup_conn = Connection::open(&backup_path)
+        .map_err(|err| format!("Failed to open DB for backup: {err}"))?;
 
-    let backup_path_str = backup_path
-        .to_str()
-        .ok_or("Backup path is not valid UTF-8")?
-        .replace('\'', "''");
+    let backup = rusqlite::backup::Backup::new(conn, &mut backup_conn)
+        .map_err(|err| format!("Failed to initialize backup: {err}"))?;
 
-    conn.execute(&format!("VACUUM INTO '{}'", backup_path_str), [])
-        .map_err(|err| {
-            format!(
-                "Failed creating pre-write backup {} -> {}: {err}",
-                db_path.display(),
-                backup_path.display()
-            )
-        })?;
+    backup.step(-1).map_err(|err| {
+        format!(
+            "Failed creating pre-write backup {} -> {}: {err}",
+            db_path.display(),
+            backup_path.display()
+        )
+    })?;
+
+    // Apply retention policy: keep only the most recent 10 pre-write backups globally
+    let _ = enforce_backup_retention(&backups_dir, 10);
 
     Ok(backup_path)
+}
+
+pub fn enforce_backup_retention(backups_dir: &Path, max_backups: usize) -> Result<(), String> {
+    let mut files = vec![];
+
+    let entries =
+        fs::read_dir(backups_dir).map_err(|e| format!("Failed to read backups directory: {e}"))?;
+
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if name_str.starts_with("mindvault-pre-") && name_str.ends_with(".db") {
+            if let Ok(metadata) = entry.metadata() {
+                if let Ok(modified) = metadata.modified() {
+                    files.push((modified, entry.path()));
+                }
+            }
+        }
+    }
+
+    // Sort descending by modified time (newest first)
+    files.sort_by_key(|b| std::cmp::Reverse(b.0));
+
+    if files.len() > max_backups {
+        for (_, path) in files.iter().skip(max_backups) {
+            let _ = fs::remove_file(path);
+        }
+    }
+
+    Ok(())
 }
 
 type OnboardingDefaultVaultSpec = (
@@ -1525,12 +1559,19 @@ pub fn execute_onboarding_commit(
             }
         }
 
-        // 2. Take pre-write backup (expensive, only run if payload is completely valid)
-        if !proposals.is_empty() {
-            let _ = minimal_pre_write_backup(db_path, "onboarding-commit")?;
+        let mut conn = open_connection(db_path)?;
+
+        // 1.5 Validate and ensure all vaults exist before backing up
+        for proposal in proposals {
+            let vault_id = proposal.vault_id.trim();
+            ensure_onboarding_vault_exists(&conn, vault_id)?;
         }
 
-        let mut conn = open_connection(db_path)?;
+        // 2. Take pre-write backup (expensive, only run if payload is completely valid)
+        if !proposals.is_empty() {
+            let _ = minimal_pre_write_backup(&conn, db_path, "onboarding-commit")?;
+        }
+
         let tx = conn
             .transaction()
             .map_err(|err| format!("Failed starting onboarding_commit transaction: {err}"))?;
@@ -1541,7 +1582,7 @@ pub fn execute_onboarding_commit(
             if vault_id.is_empty() {
                 return Err("Onboarding commit row is missing vault_id".to_string());
             }
-            ensure_onboarding_vault_exists(&tx, vault_id)?;
+            // ensure_onboarding_vault_exists already done above
             let vault = fetch_vault_by_id(&tx, vault_id)?;
             let (resolved_vault_id, resolved_sub_vault_id) = match vault.parent_vault_id {
                 Some(parent_id) => (parent_id, Some(vault.id)),

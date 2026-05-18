@@ -128,13 +128,38 @@ fn test_onboarding_commit_and_backup() -> Result<(), Box<dyn Error>> {
     assert_eq!(backup_files, 1, "Should have created exactly 1 backup file");
 
     // 8. Test minimal_pre_write_backup directly
-    let backup_path = minimal_pre_write_backup(&db_path, "manual-test")?;
+    let backup_path = minimal_pre_write_backup(&conn, &db_path, "manual-test")?;
     assert!(backup_path.exists(), "Backup file should be created");
     assert!(backup_path
         .file_name()
         .ok_or("No file name")?
         .to_string_lossy()
         .starts_with("mindvault-pre-manual-test-"));
+
+    // 9. Test backup retention (should keep only 10 total)
+    // We already have 2 backups (1 from execute_onboarding_commit, 1 from manual-test).
+    // Let's create 10 more, for a total of 12. The retention policy should trim it to 10.
+    for i in 0..10 {
+        // Sleep slightly to ensure distinct modification times
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let _ = minimal_pre_write_backup(&conn, &db_path, &format!("retention-{}", i))?;
+    }
+
+    let mut final_backup_files = 0;
+    for entry in fs::read_dir(&backups_dir)? {
+        let entry = entry?;
+        if entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with("mindvault-pre-")
+        {
+            final_backup_files += 1;
+        }
+    }
+    assert_eq!(
+        final_backup_files, 10,
+        "Should have retained exactly 10 backup files"
+    );
 
     let _ = fs::remove_dir_all(parent_dir);
 
