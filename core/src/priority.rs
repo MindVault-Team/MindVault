@@ -1,13 +1,13 @@
-// MindVault — Usage-Relative Priority (URP) System
-//
-// Nodes are not degraded or forgotten over time.
-// A closed app is a frozen system — no state changes, no priority shifts.
-// "MindVault Time" only advances when the user actively uses the app
-// and generates touches on nodes.
-//
-// Vault-Relative Time: each vault has its own independent timeline.
-// If vault A is active but vault B has no touches, vault B's nodes
-// remain frozen — their access_history does not shift forward.
+//! MindVault — Usage-Relative Priority (URP) System
+//!
+//! Nodes are not degraded or forgotten over time.
+//! A closed app is a frozen system — no state changes, no priority shifts.
+//! "MindVault Time" only advances when the user actively uses the app
+//! and generates touches on nodes.
+//!
+//! Vault-Relative Time: each vault has its own independent timeline.
+//! If vault A is active but vault B has no touches, vault B's nodes
+//! remain frozen — their access_history does not shift forward.
 
 pub const DEFAULT_PRIORITY_JSON: &str = "{\"score\":0.8,\"profile\":\"standard\",\"pinned\":false,\"access_count_30active\":0,\"access_count_90active\":0,\"access_history\":[],\"session_touches\":0,\"auto_trim_threshold\":0.25}";
 
