@@ -221,6 +221,8 @@ pub struct OnboardingNodeCommitInput {
     pub node_type: Option<String>,
     #[ts(optional)]
     pub source_type: Option<String>,
+    #[ts(optional)]
+    pub tags: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]

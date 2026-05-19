@@ -23,6 +23,78 @@ import { getEffectivePrivacy, getPrivacyRank } from "../utils/privacy";
 import { PrivacyBadge } from "./PrivacyBadge";
 import PriorityBar from "./PriorityBar";
 
+/**
+ * Calculates the exact top and left caret coordinates relative to the top-left corner of the textarea's padding box.
+ */
+function getCaretCoordinates(
+  element: HTMLTextAreaElement,
+  position: number
+): { top: number; left: number } {
+  const div = document.createElement("div");
+  document.body.appendChild(div);
+
+  const style = div.style;
+  const computed = window.getComputedStyle(element);
+
+  style.whiteSpace = "pre-wrap";
+  style.wordBreak = "break-word";
+  style.position = "absolute";
+  style.visibility = "hidden";
+
+  const properties = [
+    "direction",
+    "boxSizing",
+    "width",
+    "height",
+    "overflowX",
+    "overflowY",
+    "borderWidth",
+    "borderStyle",
+    "paddingTop",
+    "paddingRight",
+    "paddingBottom",
+    "paddingLeft",
+    "fontFamily",
+    "fontSize",
+    "fontWeight",
+    "fontStyle",
+    "fontVariant",
+    "textTransform",
+    "wordSpacing",
+    "letterSpacing",
+    "lineHeight",
+  ];
+
+  for (const prop of properties) {
+    // @ts-expect-error - dynamic key styling access
+    style[prop] = computed[prop];
+  }
+
+  style.boxSizing = "content-box";
+  const paddingLeft = parseFloat(computed.paddingLeft) || 0;
+  const paddingRight = parseFloat(computed.paddingRight) || 0;
+  style.width = `${element.clientWidth - paddingLeft - paddingRight}px`;
+
+  const textContent = element.value.substring(0, position);
+  div.textContent = textContent;
+
+  const span = document.createElement("span");
+  span.textContent = "\u200b";
+  div.appendChild(span);
+
+  const borderTop = parseFloat(computed.borderTopWidth) || 0;
+  const borderLeft = parseFloat(computed.borderLeftWidth) || 0;
+  const lineHeight = parseFloat(computed.lineHeight) || 20;
+
+  const coordinates = {
+    top: span.offsetTop + borderTop + lineHeight - element.scrollTop,
+    left: span.offsetLeft + borderLeft - element.scrollLeft,
+  };
+
+  document.body.removeChild(div);
+  return coordinates;
+}
+
 type NodeEditorProps = {
   selectedNodeId: string | null;
   refreshKey: number;
@@ -150,22 +222,27 @@ function NodeEditor({
       }
     }
 
-    let created = false;
+    const uniqueTargetIds = new Set<string>();
     for (const name of names) {
       const target = titleMap.get(name.toLowerCase());
       if (!target || target.id === sourceNodeId) continue;
       if (existingTargetIds.has(target.id)) continue;
+      uniqueTargetIds.add(target.id);
+    }
 
+    if (uniqueTargetIds.size === 0) return;
+
+    const createPromises = Array.from(uniqueTargetIds).map(async (targetId) => {
       const result = await createDoor({
         sourceNodeId,
-        targetNodeId: target.id,
+        targetNodeId: targetId,
         label: "wikilink",
       });
-      if (!result.error) {
-        existingTargetIds.add(target.id);
-        created = true;
-      }
-    }
+      return !result.error;
+    });
+
+    const results = await Promise.all(createPromises);
+    const created = results.some((success) => success);
 
     if (created) {
       await refreshDoors(sourceNodeId);
@@ -590,18 +667,8 @@ function NodeEditor({
     setWikilinkOpen(true);
 
     // Position dropdown relative to the textarea
-    if (detailRef.current) {
-      const rect = detailRef.current.getBoundingClientRect();
-      // Approximate line position (rough but good enough for a dropdown)
-      const lineHeight = 20;
-      const lines = before.split("\n");
-      const lineNum = lines.length;
-      const scrollTop = detailRef.current.scrollTop;
-      setWikilinkDropdownPos({
-        top: rect.top + Math.min(lineNum * lineHeight, rect.height) - scrollTop,
-        left: rect.left + 20,
-      });
-    }
+    const coords = getCaretCoordinates(ta, pos);
+    setWikilinkDropdownPos(coords);
   }
 
   /** Insert the selected wikilink into the detail textarea. */
@@ -1048,6 +1115,13 @@ function NodeEditor({
                   value={editDetail}
                   onChange={(e) => setEditDetail(e.target.value)}
                   onKeyUp={onDetailKeyUp}
+                  onScroll={(e) => {
+                    if (wikilinkOpen) {
+                      const ta = e.currentTarget;
+                      const coords = getCaretCoordinates(ta, ta.selectionStart);
+                      setWikilinkDropdownPos(coords);
+                    }
+                  }}
                   onBlur={() => {
                     window.setTimeout(() => setWikilinkOpen(false), 150);
                   }}
@@ -1059,7 +1133,7 @@ function NodeEditor({
                     style={
                       wikilinkDropdownPos
                         ? {
-                            position: "fixed",
+                            position: "absolute",
                             top: wikilinkDropdownPos.top,
                             left: wikilinkDropdownPos.left,
                           }

@@ -489,8 +489,7 @@ function VaultSidebar({
           const children = childrenByParent.get(vault.id) ?? [];
           const vaultNodes = nodesByVaultId.get(vault.id) ?? [];
           const hasExpandableContent = children.length > 0 || vaultNodes.length > 0;
-          const expanded =
-            shouldExpand(vault.id, hasExpandableContent) || (expandedVaults[vault.id] ?? false);
+          const expanded = shouldExpand(vault.id, hasExpandableContent);
 
           // Dimming logic: when searching, dim everything that is NOT on a match path
           const isDimmed = isSearching && !isVaultOnMatchPath(vault.id);
@@ -567,8 +566,9 @@ function VaultSidebar({
                     const childIsHighlighted = isSearching && isSubVaultMatch(child.id);
                     const childHasContent = childNodes.length > 0;
                     const childExpanded =
-                      (isSearching && isSubVaultMatch(child.id)) ||
-                      (expandedVaults[child.id] ?? false);
+                      childHasContent &&
+                      ((isSearching && isSubVaultMatch(child.id)) ||
+                        (expandedVaults[child.id] ?? false));
 
                     return (
                       <li key={child.id} className={childIsDimmed ? "tree-dimmed" : ""}>

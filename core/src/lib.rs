@@ -9,7 +9,7 @@ use tauri::Manager;
 
 mod auth;
 mod chat;
-mod ipc_types;
+pub mod ipc_types;
 pub mod llm;
 pub mod onboarding;
 mod priority;
@@ -84,7 +84,11 @@ fn generate_id(conn: &Connection, prefix: &str) -> Result<String, String> {
     .map_err(|err| format!("Failed generating id: {err}"))
 }
 
-fn minimal_pre_write_backup(db_path: &Path, reason: &str) -> Result<PathBuf, String> {
+pub fn minimal_pre_write_backup(
+    conn: &Connection,
+    db_path: &Path,
+    reason: &str,
+) -> Result<PathBuf, String> {
     let parent = db_path
         .parent()
         .ok_or_else(|| format!("Database path has no parent: {}", db_path.display()))?;
@@ -101,24 +105,54 @@ fn minimal_pre_write_backup(db_path: &Path, reason: &str) -> Result<PathBuf, Str
         .as_millis();
     let backup_path = backups_dir.join(format!("mindvault-pre-{reason}-{now_unix}.db"));
 
-    let conn =
-        Connection::open(db_path).map_err(|err| format!("Failed to open DB for backup: {err}"))?;
+    let mut backup_conn = Connection::open(&backup_path)
+        .map_err(|err| format!("Failed to open DB for backup: {err}"))?;
 
-    let backup_path_str = backup_path
-        .to_str()
-        .ok_or("Backup path is not valid UTF-8")?
-        .replace('\'', "''");
+    let backup = rusqlite::backup::Backup::new(conn, &mut backup_conn)
+        .map_err(|err| format!("Failed to initialize backup: {err}"))?;
 
-    conn.execute(&format!("VACUUM INTO '{}'", backup_path_str), [])
-        .map_err(|err| {
-            format!(
-                "Failed creating pre-write backup {} -> {}: {err}",
-                db_path.display(),
-                backup_path.display()
-            )
-        })?;
+    backup.step(-1).map_err(|err| {
+        format!(
+            "Failed creating pre-write backup {} -> {}: {err}",
+            db_path.display(),
+            backup_path.display()
+        )
+    })?;
+
+    // Apply retention policy: keep only the most recent 10 pre-write backups globally
+    let _ = enforce_backup_retention(&backups_dir, 10);
 
     Ok(backup_path)
+}
+
+pub fn enforce_backup_retention(backups_dir: &Path, max_backups: usize) -> Result<(), String> {
+    let mut files = vec![];
+
+    let entries =
+        fs::read_dir(backups_dir).map_err(|e| format!("Failed to read backups directory: {e}"))?;
+
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if name_str.starts_with("mindvault-pre-") && name_str.ends_with(".db") {
+            if let Ok(metadata) = entry.metadata() {
+                if let Ok(modified) = metadata.modified() {
+                    files.push((modified, entry.path()));
+                }
+            }
+        }
+    }
+
+    // Sort descending by modified time (newest first)
+    files.sort_by_key(|b| std::cmp::Reverse(b.0));
+
+    if files.len() > max_backups {
+        for (_, path) in files.iter().skip(max_backups) {
+            let _ = fs::remove_file(path);
+        }
+    }
+
+    Ok(())
 }
 
 type OnboardingDefaultVaultSpec = (
@@ -200,7 +234,7 @@ fn onboarding_default_vault_spec(vault_id: &str) -> Option<OnboardingDefaultVaul
     }
 }
 
-fn ensure_onboarding_vault_exists(conn: &Connection, vault_id: &str) -> Result<(), String> {
+pub fn ensure_onboarding_vault_exists(conn: &Connection, vault_id: &str) -> Result<(), String> {
     if fetch_vault_by_id(conn, vault_id).is_ok() {
         return Ok(());
     }
@@ -1453,9 +1487,29 @@ fn onboarding_commit(
     proposals: Vec<OnboardingNodeCommitInput>,
     state: tauri::State<'_, DbState>,
 ) -> IpcResponse<bool> {
-    into_ipc((|| {
+    into_ipc(execute_onboarding_commit(&proposals, &state.db_path))
+}
+
+pub fn execute_onboarding_commit(
+    proposals: &[OnboardingNodeCommitInput],
+    db_path: &Path,
+) -> Result<bool, String> {
+    (|| {
+        struct ValidatedProposal<'a> {
+            vault_id: &'a str,
+            title: &'a str,
+            summary: &'a str,
+            detail: Option<String>,
+            node_type: &'a str,
+            source_type: &'a str,
+            tags: Option<&'a Vec<String>>,
+        }
+
+        let mut conn = open_connection(db_path)?;
+        let mut validated_proposals = Vec::with_capacity(proposals.len());
+
         // 1. Validate all proposals first
-        for proposal in &proposals {
+        for proposal in proposals {
             let vault_id = proposal.vault_id.trim();
             if vault_id.is_empty() {
                 return Err("Onboarding commit row is missing vault_id".to_string());
@@ -1516,50 +1570,44 @@ fn onboarding_commit(
                     source_type, valid_source_types
                 ));
             }
-        }
+            ensure_onboarding_vault_exists(&conn, vault_id)?;
 
-        // 2. Take pre-write backup (expensive, only run if payload is completely valid)
-        if !proposals.is_empty() {
-            let _ = minimal_pre_write_backup(&state.db_path, "onboarding-commit")?;
-        }
-
-        let mut conn = open_connection(&state.db_path)?;
-        let tx = conn
-            .transaction()
-            .map_err(|err| format!("Failed starting onboarding_commit transaction: {err}"))?;
-
-        // 3. Process and write
-        for proposal in &proposals {
-            let vault_id = proposal.vault_id.trim();
-            if vault_id.is_empty() {
-                return Err("Onboarding commit row is missing vault_id".to_string());
-            }
-            ensure_onboarding_vault_exists(&tx, vault_id)?;
-            let vault = fetch_vault_by_id(&tx, vault_id)?;
-            let (resolved_vault_id, resolved_sub_vault_id) = match vault.parent_vault_id {
-                Some(parent_id) => (parent_id, Some(vault.id)),
-                None => (vault.id, None),
-            };
-
-            let node_type = proposal
-                .node_type
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .unwrap_or("concept");
-
-            let source_type = proposal
-                .source_type
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .unwrap_or("onboarding");
             let detail = proposal
                 .detail
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .map(|value| value.to_string());
+                .map(String::from);
+
+            validated_proposals.push(ValidatedProposal {
+                vault_id,
+                title,
+                summary,
+                detail,
+                node_type,
+                source_type,
+                tags: proposal.tags.as_ref(),
+            });
+        }
+
+        // 2. Take pre-write backup (expensive, only run if payload is completely valid)
+        if !proposals.is_empty() {
+            let _ = minimal_pre_write_backup(&conn, db_path, "onboarding-commit")?;
+        }
+
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("Failed starting onboarding_commit transaction: {err}"))?;
+
+        // 3. Process and write
+        for proposal in validated_proposals {
+            // ensure_onboarding_vault_exists already done above
+            let vault = fetch_vault_by_id(&tx, proposal.vault_id)?;
+            let (resolved_vault_id, resolved_sub_vault_id) = match vault.parent_vault_id {
+                Some(parent_id) => (parent_id, Some(vault.id)),
+                None => (vault.id, None),
+            };
+
             let priority_json = priority::DEFAULT_PRIORITY_JSON;
 
             let node_id = generate_id(&tx, "node")?;
@@ -1573,17 +1621,50 @@ fn onboarding_commit(
                     node_id,
                     resolved_vault_id,
                     resolved_sub_vault_id,
-                    node_type,
-                    proposal.title.trim(),
-                    proposal.summary.trim(),
-                    detail,
+                    proposal.node_type,
+                    proposal.title,
+                    proposal.summary,
+                    proposal.detail,
                     Some("onboarding_wizard"),
-                    source_type,
+                    proposal.source_type,
                     priority_json,
                     "{}"
                 ],
             )
             .map_err(|err| format!("Failed inserting onboarding node: {err}"))?;
+
+            if let Some(tags) = proposal.tags {
+                for tag_name in tags {
+                    let clean_name = tag_name.trim();
+                    if clean_name.is_empty() {
+                        continue;
+                    }
+
+                    let tag_id = match tx.query_row(
+                        "SELECT id FROM tags WHERE name = ?1;",
+                        [clean_name],
+                        |row| row.get::<_, String>(0),
+                    ) {
+                        Ok(id) => id,
+                        Err(rusqlite::Error::QueryReturnedNoRows) => {
+                            let new_id = generate_id(&tx, "tag")?;
+                            tx.execute(
+                                "INSERT INTO tags (id, name, color) VALUES (?1, ?2, NULL);",
+                                params![new_id, clean_name],
+                            )
+                            .map_err(|err| format!("Failed inserting tag: {err}"))?;
+                            new_id
+                        }
+                        Err(err) => return Err(format!("Failed querying tag: {err}")),
+                    };
+
+                    tx.execute(
+                        "INSERT OR IGNORE INTO node_tags (node_id, tag_id) VALUES (?1, ?2);",
+                        params![&node_id, &tag_id],
+                    )
+                    .map_err(|err| format!("Failed inserting node tag: {err}"))?;
+                }
+            }
         }
 
         tx.execute(
@@ -1601,7 +1682,7 @@ fn onboarding_commit(
             .map_err(|err| format!("Failed committing onboarding_commit: {err}"))?;
 
         Ok(true)
-    })())
+    })()
 }
 
 fn run_priority_refresh(db_path: &std::path::Path) -> Result<usize, String> {

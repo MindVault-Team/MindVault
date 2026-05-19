@@ -10,4 +10,5 @@ export type OnboardingNodeCommitInput = {
   detail?: string;
   nodeType?: string;
   sourceType?: string;
+  tags?: Array<string>;
 };

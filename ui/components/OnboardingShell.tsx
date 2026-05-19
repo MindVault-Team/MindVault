@@ -147,6 +147,7 @@ function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingS
   const [extractBusy, setExtractBusy] = useState(false);
   const [commitBusy, setCommitBusy] = useState(false);
   const [hasExtracted, setHasExtracted] = useState(false);
+  const [extractionFailed, setExtractionFailed] = useState(false);
   const [stagedProposals, setStagedProposals] = useState<EditableStagedProposal[]>([]);
   const [vaultNameById, setVaultNameById] = useState<Record<string, string>>({});
 
@@ -211,6 +212,7 @@ function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingS
     setModels([]);
     setStatusMessage(null);
     setHasExtracted(false);
+    setExtractionFailed(false);
 
     const restoredModel = getLlmModel(nextProvider);
     setSelectedModelState(restoredModel);
@@ -221,11 +223,13 @@ function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingS
     setSelectedModelState(nextModel);
     setLlmModel(provider, nextModel);
     setHasExtracted(false);
+    setExtractionFailed(false);
   }
 
   function onAnswerChange(field: keyof BasicsAnswers, value: string) {
     setAnswers((current) => ({ ...current, [field]: value }));
     setHasExtracted(false);
+    setExtractionFailed(false);
   }
 
   async function testConnectionAndFetchModels() {
@@ -297,12 +301,14 @@ function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingS
       );
       setStagedProposals(editableRows);
       setHasExtracted(true);
+      setExtractionFailed(false);
       setStatusMessage({
         text: `Extraction complete. Staged ${editableRows.length} proposal(s).`,
         kind: "info",
       });
       return true;
     } catch (error) {
+      setExtractionFailed(true);
       setStatusMessage({
         text: error instanceof Error ? error.message : String(error),
         kind: "error",
@@ -514,6 +520,7 @@ function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingS
                       setLmStudioEndpointState(nextValue);
                     }
                     setHasExtracted(false);
+                    setExtractionFailed(false);
                     setModels([]);
                     setStatusMessage(null);
                     setSelectedModel("");
@@ -669,6 +676,20 @@ function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingS
           <button type="button" onClick={goBack} disabled={currentStep === 0 || shellBusy}>
             Back
           </button>
+          {currentStep === 1 && extractionFailed ? (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                setHasExtracted(true);
+                setExtractionFailed(false);
+                setCurrentStep(2);
+              }}
+              disabled={shellBusy}
+            >
+              Skip extraction
+            </button>
+          ) : null}
           <button
             type="button"
             className="primary"
