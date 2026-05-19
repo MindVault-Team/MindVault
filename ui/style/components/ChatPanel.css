@@ -1,7 +1,7 @@
 .chat-panel {
   position: relative;
   z-index: 10;
-  width: min(760px, 92vw);
+  width: min(760px, 92%);
   height: min(78vh, 720px);
   display: flex;
   flex-direction: column;
@@ -11,6 +11,7 @@
   background: var(--background);
   backdrop-filter: blur(10px);
   overflow: hidden;
+  transition: width 220ms ease;
 }
 
 .chat-header {

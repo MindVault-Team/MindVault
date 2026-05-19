@@ -877,6 +877,8 @@ fn vault_update(input: VaultUpdateInput, state: tauri::State<'_, DbState>) -> Ip
         let next_name = input.name.unwrap_or(current.name);
         let next_privacy_tier = input.privacy_tier.unwrap_or(current.privacy_tier);
         let next_priority_profile = input.priority_profile.unwrap_or(current.priority_profile);
+        let next_icon = input.icon.or(current.icon);
+        let next_description = input.description.or(current.description);
 
         let affected_vaults = tx
             .execute(
@@ -884,13 +886,17 @@ fn vault_update(input: VaultUpdateInput, state: tauri::State<'_, DbState>) -> Ip
                  SET name = ?2,
                      privacy_tier = ?3,
                      priority_profile = ?4,
+                     icon = ?5,
+                     description = ?6,
                      updated_at = datetime('now')
                  WHERE id = ?1 AND deleted_at IS NULL;",
                 params![
                     &vault_id,
                     &next_name,
                     &next_privacy_tier,
-                    &next_priority_profile
+                    &next_priority_profile,
+                    &next_icon,
+                    &next_description
                 ],
             )
             .map_err(|err| format!("Failed updating vault: {err}"))?;
@@ -901,13 +907,17 @@ fn vault_update(input: VaultUpdateInput, state: tauri::State<'_, DbState>) -> Ip
                  SET name = ?2,
                      privacy_tier = ?3,
                      priority_profile = ?4,
+                     icon = ?5,
+                     description = ?6,
                      updated_at = datetime('now')
                  WHERE id = ?1 AND deleted_at IS NULL;",
                 params![
                     &vault_id,
                     &next_name,
                     &next_privacy_tier,
-                    &next_priority_profile
+                    &next_priority_profile,
+                    &next_icon,
+                    &next_description
                 ],
             )
             .map_err(|err| format!("Failed updating sub-vault: {err}"))?;

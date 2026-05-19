@@ -12,7 +12,12 @@ import OnboardingShell from "./components/OnboardingShell";
 import type { ContextAssemblerScope } from "./constants/contextBudget";
 import { refreshAllPriorityScores } from "./services/nodes";
 import { DEV_ONBOARDING_CHANGED } from "./constants/devEvents";
-import { getOnboardingComplete, setOnboardingComplete } from "./services/settings";
+import {
+  getOnboardingComplete,
+  setOnboardingComplete,
+  getSetting,
+  setSetting,
+} from "./services/settings";
 import "./style/MonoStyles.css";
 
 function App() {
@@ -68,20 +73,121 @@ function App() {
 
   const [selectedVaultId, setSelectedVaultId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [leftPaneVisible, setLeftPaneVisible] = useState<boolean>(false);
-  const [rightPaneVisible, setRightPaneVisible] = useState<boolean>(false);
+  const [leftPanePinned, setLeftPanePinned] = useState<boolean>(false);
+  const [rightPanePinned, setRightPanePinned] = useState<boolean>(false);
+  const [leftPaneWidth, setLeftPaneWidth] = useState<number>(() => {
+    const saved = localStorage.getItem("sidebar_left_width");
+    return saved ? Math.max(200, Math.min(window.innerWidth * 0.4, parseInt(saved, 10))) : 280;
+  });
+  const [rightPaneWidth, setRightPaneWidth] = useState<number>(() => {
+    const saved = localStorage.getItem("sidebar_right_width");
+    return saved ? Math.max(200, Math.min(window.innerWidth * 0.4, parseInt(saved, 10))) : 400;
+  });
+
+  // Load persistent panel widths from the database on mount
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [savedLeft, savedRight] = await Promise.all([
+          getSetting("sidebar_left_width"),
+          getSetting("sidebar_right_width"),
+        ]);
+        if (!cancelled) {
+          const maxWidth = window.innerWidth * 0.4;
+          if (savedLeft) {
+            const w = parseInt(savedLeft, 10);
+            if (!isNaN(w)) {
+              const clamped = Math.max(200, Math.min(maxWidth, w));
+              setLeftPaneWidth(clamped);
+              localStorage.setItem("sidebar_left_width", String(clamped));
+            }
+          }
+          if (savedRight) {
+            const w = parseInt(savedRight, 10);
+            if (!isNaN(w)) {
+              const clamped = Math.max(200, Math.min(maxWidth, w));
+              setRightPaneWidth(clamped);
+              localStorage.setItem("sidebar_right_width", String(clamped));
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load panel widths from persistent settings", error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const [leftResizing, setLeftResizing] = useState<boolean>(false);
+  const [rightResizing, setRightResizing] = useState<boolean>(false);
   const [vaultRefreshKey, setVaultRefreshKey] = useState<number>(0);
   const [nodeRefreshKey, setNodeRefreshKey] = useState<number>(0);
   const [isRedactedUnlocked, setIsRedactedUnlocked] = useState<boolean>(false);
   const [showDashboard, setShowDashboard] = useState<boolean>(false);
   const [showSettings, setShowSettings] = useState<boolean>(false);
-  const leftPaneExpanded = leftPaneVisible;
+  const [sidebarModalOpen, setSidebarModalOpen] = useState<boolean>(false);
+  const leftPaneExpanded = leftPanePinned;
+  const rightPaneExpanded = rightPanePinned;
   const scopeNodeIds = useMemo(() => (selectedNodeId ? [selectedNodeId] : []), [selectedNodeId]);
   const [assemblerScope, setAssemblerScope] = useState<ContextAssemblerScope>("local");
 
+  // Keep widths clamped when window resizes or on initial mount
+  useEffect(() => {
+    const handleResize = () => {
+      const maxWidth = window.innerWidth * 0.4;
+      setLeftPaneWidth((w) => Math.max(200, Math.min(maxWidth, w)));
+      setRightPaneWidth((w) => Math.max(200, Math.min(maxWidth, w)));
+    };
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const handleLeftResizeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setLeftResizing(true);
+    let finalWidth = leftPaneWidth;
+    const handleMouseMove = (moveEvent: globalThis.MouseEvent) => {
+      const maxWidth = window.innerWidth * 0.4;
+      finalWidth = Math.max(200, Math.min(maxWidth, moveEvent.clientX));
+      setLeftPaneWidth(finalWidth);
+    };
+    const handleMouseUp = () => {
+      setLeftResizing(false);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      localStorage.setItem("sidebar_left_width", String(finalWidth));
+      void setSetting("sidebar_left_width", String(finalWidth)).catch(() => {});
+    };
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
+
+  const handleRightResizeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setRightResizing(true);
+    let finalWidth = rightPaneWidth;
+    const handleMouseMove = (moveEvent: globalThis.MouseEvent) => {
+      const maxWidth = window.innerWidth * 0.4;
+      finalWidth = Math.max(200, Math.min(maxWidth, window.innerWidth - moveEvent.clientX));
+      setRightPaneWidth(finalWidth);
+    };
+    const handleMouseUp = () => {
+      setRightResizing(false);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      localStorage.setItem("sidebar_right_width", String(finalWidth));
+      void setSetting("sidebar_right_width", String(finalWidth)).catch(() => {});
+    };
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
+
   function closeAllPanes() {
-    setLeftPaneVisible(false);
-    setRightPaneVisible(false);
+    setLeftPanePinned(false);
+    setRightPanePinned(false);
   }
 
   function onZenCanvasClick(event: MouseEvent<HTMLElement>) {
@@ -107,7 +213,7 @@ function App() {
     if (selectedVaultId === vaultId) {
       setSelectedVaultId(null);
       setSelectedNodeId(null);
-      setRightPaneVisible(false);
+      setRightPanePinned(false);
     }
     setVaultRefreshKey((value) => value + 1);
     setNodeRefreshKey((value) => value + 1);
@@ -117,21 +223,21 @@ function App() {
     setSelectedNodeId(nodeId);
     setShowDashboard(false);
     setShowSettings(false);
-    setRightPaneVisible(true);
+    setRightPanePinned(true);
   }
 
   function onNodeCreated(nodeId: string) {
     setSelectedNodeId(nodeId);
     setShowDashboard(false);
     setShowSettings(false);
-    setRightPaneVisible(true);
+    setRightPanePinned(true);
     setNodeRefreshKey((value) => value + 1);
   }
 
   function onNodeDeleted(nodeId: string) {
     if (selectedNodeId === nodeId) {
       setSelectedNodeId(null);
-      setRightPaneVisible(false);
+      setRightPanePinned(false);
     }
     setNodeRefreshKey((value) => value + 1);
   }
@@ -140,14 +246,14 @@ function App() {
     setSelectedNodeId(null);
     setShowDashboard(true);
     setShowSettings(false);
-    setRightPaneVisible(true);
+    setRightPanePinned(true);
   }
 
   function onOpenSettings() {
     setSelectedNodeId(null);
     setShowDashboard(false);
     setShowSettings(true);
-    setRightPaneVisible(true);
+    setRightPanePinned(true);
   }
 
   async function completeOnboardingShell() {
@@ -169,9 +275,24 @@ function App() {
     }
   }
 
+  const leftToggleStyle = {
+    left: leftPaneExpanded || sidebarModalOpen ? leftPaneWidth + 16 : 16,
+  };
+
+  const rightToggleStyle = {
+    right: rightPaneExpanded ? rightPaneWidth + 16 : 16,
+  };
+
+  const zenCanvasStyle = {
+    left: leftPaneExpanded || sidebarModalOpen ? leftPaneWidth : 0,
+    right: rightPaneExpanded ? rightPaneWidth : 0,
+  };
+
   return (
     <ErrorBoundary>
-      <main className="hybrid-shell">
+      <main
+        className={`hybrid-shell ${leftPanePinned ? "left-pinned" : ""} ${rightPanePinned ? "right-pinned" : ""} ${leftResizing || rightResizing ? "is-resizing" : ""}`}
+      >
         {!onboardingResolved ? (
           <section className="onboarding-shell">
             <div className="onboarding-card onboarding-loading-card">
@@ -190,7 +311,63 @@ function App() {
         ) : null}
         {onboardingResolved && needsOnboarding ? null : (
           <>
-            <section className="zen-canvas" onClick={onZenCanvasClick}>
+            {/* Left Sidebar Toggle Button */}
+            <button
+              className={`sidebar-toggle-btn left ${leftPaneExpanded || sidebarModalOpen ? "open" : ""}`}
+              onClick={() => setLeftPanePinned(!leftPanePinned)}
+              style={leftToggleStyle}
+              title={leftPanePinned ? "Collapse Left Panel" : "Pin Left Panel"}
+              aria-label="Toggle left panel"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M9 3v18" />
+                {leftPaneExpanded ? (
+                  <polygon points="16,9 12,12 16,15" fill="currentColor" />
+                ) : (
+                  <polygon points="12,9 16,12 12,15" fill="currentColor" />
+                )}
+              </svg>
+            </button>
+
+            {/* Right Sidebar Toggle Button */}
+            <button
+              className={`sidebar-toggle-btn right ${rightPaneExpanded ? "open" : ""}`}
+              onClick={() => setRightPanePinned(!rightPanePinned)}
+              style={rightToggleStyle}
+              title={rightPanePinned ? "Collapse Right Panel" : "Pin Right Panel"}
+              aria-label="Toggle right panel"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M15 3v18" />
+                {rightPaneExpanded ? (
+                  <polygon points="8,9 12,12 8,15" fill="currentColor" />
+                ) : (
+                  <polygon points="12,9 8,12 12,15" fill="currentColor" />
+                )}
+              </svg>
+            </button>
+
+            <section className="zen-canvas" onClick={onZenCanvasClick} style={zenCanvasStyle}>
               <ChatPanel
                 selectedNodeIds={scopeNodeIds}
                 scope={assemblerScope}
@@ -200,71 +377,74 @@ function App() {
             </section>
 
             <div
-              className={`hover-zone left-zone ${leftPaneExpanded ? "expanded" : ""}`}
-              onMouseEnter={() => setLeftPaneVisible(true)}
-              onMouseLeave={() => setLeftPaneVisible(false)}
+              className={`pane-wrap left ${leftPaneExpanded || sidebarModalOpen ? "show" : ""}`}
+              style={{ width: leftPaneWidth }}
             >
-              <div className="edge-trigger left" />
-              <div className={`pane-wrap left ${leftPaneExpanded ? "show" : ""}`}>
-                {!selectedVaultId ? (
-                  <VaultSidebar
-                    selectedVaultId={selectedVaultId}
-                    onSelectVault={onSelectVault}
-                    onSelectNode={onSelectNode}
-                    onVaultCreated={onVaultCreated}
-                    onVaultDeleted={onVaultDeleted}
-                    onOpenDashboard={onOpenDashboard}
-                    onOpenSettings={onOpenSettings}
-                    refreshKey={vaultRefreshKey}
-                    isRedactedUnlocked={isRedactedUnlocked}
-                    setIsRedactedUnlocked={setIsRedactedUnlocked}
-                  />
-                ) : (
-                  <NodeList
-                    selectedVaultId={selectedVaultId}
-                    selectedNodeId={selectedNodeId}
-                    onSelectNode={onSelectNode}
-                    onNodeCreated={onNodeCreated}
-                    onBack={() => {
-                      setSelectedVaultId(null);
-                      setSelectedNodeId(null);
-                    }}
-                    refreshKey={nodeRefreshKey}
-                  />
-                )}
-              </div>
+              {!selectedVaultId ? (
+                <VaultSidebar
+                  selectedVaultId={selectedVaultId}
+                  onSelectVault={onSelectVault}
+                  onSelectNode={onSelectNode}
+                  onVaultCreated={onVaultCreated}
+                  onVaultDeleted={onVaultDeleted}
+                  onOpenDashboard={onOpenDashboard}
+                  onOpenSettings={onOpenSettings}
+                  refreshKey={vaultRefreshKey}
+                  isRedactedUnlocked={isRedactedUnlocked}
+                  setIsRedactedUnlocked={setIsRedactedUnlocked}
+                  onModalToggle={setSidebarModalOpen}
+                />
+              ) : (
+                <NodeList
+                  selectedVaultId={selectedVaultId}
+                  selectedNodeId={selectedNodeId}
+                  onSelectNode={onSelectNode}
+                  onNodeCreated={onNodeCreated}
+                  onBack={() => {
+                    setSelectedVaultId(null);
+                    setSelectedNodeId(null);
+                  }}
+                  refreshKey={nodeRefreshKey}
+                />
+              )}
+              {/* Left Resize Handle */}
+              <div
+                className={`resize-handle left-handle ${leftResizing ? "active" : ""}`}
+                onMouseDown={handleLeftResizeMouseDown}
+              />
             </div>
 
             <div
-              className={`hover-zone right-zone ${rightPaneVisible ? "expanded" : ""}`}
-              onMouseEnter={() => setRightPaneVisible(true)}
-              onMouseLeave={() => setRightPaneVisible(false)}
+              className={`pane-wrap right ${rightPaneExpanded ? "show" : ""}`}
+              style={{ width: rightPaneWidth }}
             >
-              <div className={`pane-wrap right ${rightPaneVisible ? "show" : ""}`}>
-                {showDashboard ? (
-                  <PriorityDashboard refreshKey={nodeRefreshKey} />
-                ) : showSettings ? (
-                  <LlmSettings />
-                ) : (
-                  <div className="right-pane-stack">
-                    <ScopeIndicator
-                      selectedNodeIds={scopeNodeIds}
-                      scope={assemblerScope}
-                      onScopeChange={setAssemblerScope}
-                    />
-                    <ActiveMemoryPanel selectedNodeIds={scopeNodeIds} />
-                    <NodeEditor
-                      selectedNodeId={selectedNodeId}
-                      onNodeDeleted={onNodeDeleted}
-                      onSaveSuccess={() => setNodeRefreshKey((value) => value + 1)}
-                      refreshKey={nodeRefreshKey}
-                      isRedactedUnlocked={isRedactedUnlocked}
-                      setIsRedactedUnlocked={setIsRedactedUnlocked}
-                    />
-                  </div>
-                )}
-              </div>
-              <div className="edge-trigger right" />
+              {showDashboard ? (
+                <PriorityDashboard refreshKey={nodeRefreshKey} />
+              ) : showSettings ? (
+                <LlmSettings />
+              ) : (
+                <div className="right-pane-stack">
+                  <ScopeIndicator
+                    selectedNodeIds={scopeNodeIds}
+                    scope={assemblerScope}
+                    onScopeChange={setAssemblerScope}
+                  />
+                  <ActiveMemoryPanel selectedNodeIds={scopeNodeIds} />
+                  <NodeEditor
+                    selectedNodeId={selectedNodeId}
+                    onNodeDeleted={onNodeDeleted}
+                    onSaveSuccess={() => setNodeRefreshKey((value) => value + 1)}
+                    refreshKey={nodeRefreshKey}
+                    isRedactedUnlocked={isRedactedUnlocked}
+                    setIsRedactedUnlocked={setIsRedactedUnlocked}
+                  />
+                </div>
+              )}
+              {/* Right Resize Handle */}
+              <div
+                className={`resize-handle right-handle ${rightResizing ? "active" : ""}`}
+                onMouseDown={handleRightResizeMouseDown}
+              />
             </div>
           </>
         )}

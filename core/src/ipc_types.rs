@@ -55,6 +55,10 @@ pub struct VaultUpdateInput {
     pub privacy_tier: Option<String>,
     #[ts(optional)]
     pub priority_profile: Option<String>,
+    #[ts(optional)]
+    pub icon: Option<String>,
+    #[ts(optional)]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]

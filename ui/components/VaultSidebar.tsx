@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Node, Vault } from "../ipc";
 import { getAllNodes } from "../services/nodes";
 import { createVault, deleteVault, listVaults, updateVault } from "../services/vaults";
 import { isAuthSetup, setMasterPassword, verifyMasterPassword } from "../services/auth";
 import { AppError } from "../services/ipcResult";
-import { PrivacyBadge } from "./PrivacyBadge";
 import { getEffectivePrivacy, getPrivacyRank } from "../utils/privacy";
 
 type VaultSidebarProps = {
@@ -18,6 +18,7 @@ type VaultSidebarProps = {
   onOpenSettings: () => void;
   isRedactedUnlocked: boolean;
   setIsRedactedUnlocked: (value: boolean) => void;
+  onModalToggle?: (isOpen: boolean) => void;
 };
 
 /**
@@ -43,12 +44,127 @@ function VaultSidebar({
   onOpenSettings,
   isRedactedUnlocked,
   setIsRedactedUnlocked,
+  onModalToggle,
 }: VaultSidebarProps) {
   const [vaults, setVaults] = useState<Vault[]>([]);
   const [allNodes, setAllNodes] = useState<Node[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedVaults, setExpandedVaults] = useState<Record<string, boolean>>({});
+  const [editingVault, setEditingVault] = useState<Vault | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editPrivacyTier, setEditPrivacyTier] = useState("");
+  const [editIcon, setEditIcon] = useState("");
+  const [favoriteVaultIds, setFavoriteVaultIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("favorite_vault_ids");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem("favorite_vault_ids", JSON.stringify(favoriteVaultIds));
+  }, [favoriteVaultIds]);
+
+  useEffect(() => {
+    if (vaults.length > 0) {
+      try {
+        const saved = localStorage.getItem("favorite_vault_ids");
+        const parsed = saved ? JSON.parse(saved) : [];
+        if (parsed.length === 0) {
+          const defaults: string[] = [];
+          for (const vault of vaults) {
+            const lowerName = vault.name.toLowerCase();
+            if (
+              lowerName.includes("classes") ||
+              lowerName.includes("credentials") ||
+              lowerName.includes("vault 1") ||
+              lowerName.includes("work")
+            ) {
+              defaults.push(vault.id);
+            }
+          }
+          if (defaults.length > 0) {
+            setTimeout(() => {
+              setFavoriteVaultIds(defaults);
+            }, 0);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to seed default favorites", e);
+      }
+    }
+  }, [vaults]);
+
+  function toggleFavorite(vaultId: string) {
+    setFavoriteVaultIds((prev) => {
+      if (prev.includes(vaultId)) {
+        return prev.filter((id) => id !== vaultId);
+      } else {
+        return [...prev, vaultId];
+      }
+    });
+  }
+
+  function getVaultEmoji(vault: Vault): string {
+    const iconKey = (vault.icon || "").trim().toLowerCase();
+
+    // First translate known icon keywords stored in DB
+    if (iconKey) {
+      if (iconKey === "key" || iconKey === "credentials") return "💳";
+      if (iconKey === "coins" || iconKey === "finance" || iconKey === "money") return "🪙";
+      if (iconKey === "heart" || iconKey === "health" || iconKey === "fitness") return "💪";
+      if (iconKey === "book" || iconKey === "learning" || iconKey === "read") return "📚";
+      if (iconKey === "user" || iconKey === "personal") return "👤";
+      if (iconKey === "briefcase" || iconKey === "work" || iconKey === "project") return "💼";
+      if (iconKey === "home" || iconKey === "vault 1") return "🏠";
+      if (iconKey === "mobile" || iconKey === "phone" || iconKey === "cse") return "📱";
+      if (iconKey === "classes" || iconKey === "computer" || iconKey === "laptop") return "💻";
+
+      // If it is already a single emoji or double character, return it directly
+      if (iconKey.length <= 2) {
+        return vault.icon!.trim();
+      }
+    }
+
+    // Fall back to name-based heuristics
+    const name = vault.name.toLowerCase();
+    if (name.includes("home") || name.includes("vault 1")) return "🏠";
+    if (name.includes("class") || name.includes("cse")) return "💻";
+    if (name.includes("credential") || name.includes("password") || name.includes("key"))
+      return "💳";
+    if (
+      name.includes("fitness") ||
+      name.includes("gym") ||
+      name.includes("workout") ||
+      name.includes("health")
+    )
+      return "💪";
+    if (name.includes("project") || name.includes("work") || name.includes("mindvault"))
+      return "📝";
+    if (name.includes("memory") || name.includes("brain")) return "🧠";
+    if (
+      name.includes("book") ||
+      name.includes("read") ||
+      name.includes("study") ||
+      name.includes("learn")
+    )
+      return "📚";
+    if (name.includes("personal") || name.includes("private") || name.includes("user")) return "👤";
+    if (
+      name.includes("finance") ||
+      name.includes("money") ||
+      name.includes("wallet") ||
+      name.includes("coins")
+    )
+      return "💰";
+
+    return "📂";
+  }
+
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"verify" | "setup">("verify");
   const [authModalTitle, setAuthModalTitle] = useState("Redacted");
@@ -58,6 +174,11 @@ function VaultSidebar({
   const [authPasswordInput, setAuthPasswordInput] = useState("");
   const [authModalError, setAuthModalError] = useState("");
   const authModalResolverRef = useRef<((allowed: boolean) => void) | null>(null);
+
+  useEffect(() => {
+    const isAnyModalOpen = !!editingVault || authModalOpen;
+    onModalToggle?.(isAnyModalOpen);
+  }, [editingVault, authModalOpen, onModalToggle]);
 
   async function loadVaults() {
     try {
@@ -266,28 +387,31 @@ function VaultSidebar({
     });
   }
 
-  async function onUpdateVaultPrivacy(vault: Vault, effectiveTier: string) {
-    if (effectiveTier === "redacted" && !isRedactedUnlocked) {
+  function onOpenVaultSettings(vault: Vault) {
+    setEditingVault(vault);
+    setEditName(vault.name);
+    setEditDescription(vault.description ?? "");
+    setEditPrivacyTier(vault.privacyTier);
+    setEditIcon(vault.icon ?? "");
+  }
+
+  async function onSaveVaultSettings() {
+    if (!editingVault) {
+      return;
+    }
+
+    const currentEffectiveTier = getEffectivePrivacy(editingVault.privacyTier);
+    const nextTier = editPrivacyTier.trim().toLowerCase();
+
+    if (nextTier === "redacted" && !isRedactedUnlocked) {
       const unlocked = await unlockRedactedFromSidebar();
       if (!unlocked) {
         return;
       }
     }
-    const input = window.prompt(
-      "Enter new privacy tier (open, local_only, locked, redacted):",
-      vault.privacyTier
-    );
-    if (input === null) {
-      return;
-    }
-    const nextTier = input.trim().toLowerCase();
-    if (!["open", "local_only", "locked", "redacted"].includes(nextTier)) {
-      setError("Invalid privacy tier. Use open, local_only, locked, or redacted.");
-      return;
-    }
 
     const isDowngradeFromRedacted =
-      effectiveTier === "redacted" && getPrivacyRank(nextTier) < getPrivacyRank("redacted");
+      currentEffectiveTier === "redacted" && getPrivacyRank(nextTier) < getPrivacyRank("redacted");
     if (isDowngradeFromRedacted) {
       const verified = await openAuthModal({
         mode: "verify",
@@ -302,7 +426,14 @@ function VaultSidebar({
     }
 
     try {
-      await updateVault({ id: vault.id, privacyTier: nextTier });
+      await updateVault({
+        id: editingVault.id,
+        name: editName.trim(),
+        privacyTier: nextTier,
+        icon: editIcon.trim() || undefined,
+        description: editDescription.trim() || undefined,
+      });
+      setEditingVault(null);
       await loadVaults();
       setError(null);
     } catch (err) {
@@ -310,7 +441,7 @@ function VaultSidebar({
         setError(err.message);
         return;
       }
-      setError("Failed to update vault privacy tier.");
+      setError("Failed to update vault settings.");
     }
   }
 
@@ -457,274 +588,435 @@ function VaultSidebar({
     return expandedVaults[vaultId] ?? false;
   }
 
+  function renderVault(vault: Vault, isFavSection: boolean) {
+    const suffix = isFavSection ? "-fav" : "";
+    const effectiveTier = getEffectivePrivacy(vault.privacyTier);
+    const children = childrenByParent.get(vault.id) ?? [];
+    const vaultNodes = nodesByVaultId.get(vault.id) ?? [];
+    const hasExpandableContent = children.length > 0 || vaultNodes.length > 0;
+    const expanded = shouldExpand(vault.id, hasExpandableContent);
+
+    // Dimming logic: when searching, dim everything that is NOT on a match path
+    const isDimmed = isSearching && !isVaultOnMatchPath(vault.id);
+    const isHighlighted = isSearching && isVaultOnMatchPath(vault.id);
+    const isFav = favoriteVaultIds.includes(vault.id);
+
+    return (
+      <li key={vault.id + suffix} className={isDimmed ? "tree-dimmed" : ""}>
+        <div
+          className={`list-item ${selectedVaultId === vault.id ? "active" : ""} ${
+            isHighlighted ? "tree-match" : ""
+          }`}
+        >
+          <button
+            type="button"
+            className={`tree-toggle ${!hasExpandableContent ? "empty" : ""}`}
+            onClick={() => onToggleExpand(vault.id)}
+            disabled={!hasExpandableContent}
+            aria-label={expanded ? `Collapse ${vault.name}` : `Expand ${vault.name}`}
+          >
+            {!hasExpandableContent ? "" : expanded ? "▾" : "▸"}
+          </button>
+          <div className="vault-header">
+            <button type="button" className="list-main" onClick={() => onSelectVaultEntry(vault)}>
+              <span className="list-title-row">
+                <span className="vault-icon-emoji">{getVaultEmoji(vault)}</span>
+                <span className="list-title-text">{vault.name}</span>
+                {effectiveTier !== "open" && <span className="privacy-lock-icon">🔒</span>}
+              </span>
+              {vault.description && <small>{vault.description}</small>}
+            </button>
+            <div className="list-actions">
+              <button
+                type="button"
+                className={`list-favorite ${isFav ? "is-fav" : ""}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleFavorite(vault.id);
+                }}
+                aria-label={isFav ? "Remove from Favorites" : "Add to Favorites"}
+              >
+                {isFav ? "★" : "☆"}
+              </button>
+              <button
+                type="button"
+                className="list-subvault"
+                onClick={() => onCreateSubVault(vault.id, vault.name)}
+                aria-label={`Create sub-vault under ${vault.name}`}
+              >
+                +
+              </button>
+              <button
+                type="button"
+                className="list-settings"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenVaultSettings(vault);
+                }}
+                aria-label={`Update settings for ${vault.name}`}
+              >
+                ⚙️
+              </button>
+              <button
+                type="button"
+                className="list-delete"
+                onClick={() => onDeleteVault(vault.id)}
+                aria-label={`Delete ${vault.name}`}
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ----- Expanded children: Sub-Vaults ----- */}
+        {expanded && children.length > 0 && (
+          <ul className="sub-vault-list">
+            {children.map((child) => {
+              const childEffectiveTier = getEffectivePrivacy(child.privacyTier, vault.privacyTier);
+              const childNodes = nodesByVaultId.get(child.id) ?? [];
+              const childIsDimmed =
+                isSearching && !isSubVaultMatch(child.id) && !isVaultOnMatchPath(child.id);
+              const childIsHighlighted = isSearching && isSubVaultMatch(child.id);
+              const childHasContent = childNodes.length > 0;
+              const childExpanded =
+                childHasContent &&
+                ((isSearching && isSubVaultMatch(child.id)) || (expandedVaults[child.id] ?? false));
+
+              return (
+                <li key={child.id + suffix} className={childIsDimmed ? "tree-dimmed" : ""}>
+                  <div
+                    className={`list-item sub sub-vault-item ${
+                      selectedVaultId === child.id ? "active" : ""
+                    } ${childIsHighlighted ? "tree-match" : ""}`}
+                  >
+                    <button
+                      type="button"
+                      className={`tree-toggle ${!childHasContent ? "empty" : ""}`}
+                      onClick={() => onToggleExpand(child.id)}
+                      disabled={!childHasContent}
+                      aria-label={childExpanded ? `Collapse ${child.name}` : `Expand ${child.name}`}
+                    >
+                      {!childHasContent ? "" : childExpanded ? "▾" : "▸"}
+                    </button>
+                    <button
+                      type="button"
+                      className="list-main"
+                      onClick={() => onSelectVaultEntry(child)}
+                    >
+                      <span className="list-title-row">
+                        <span className="vault-icon-emoji">{getVaultEmoji(child)}</span>
+                        <span className="list-title-text">{child.name}</span>
+                        {childEffectiveTier !== "open" && (
+                          <span className="privacy-lock-icon">🔒</span>
+                        )}
+                      </span>
+                      {child.description && <small>{child.description}</small>}
+                    </button>
+                    <div className="list-actions">
+                      <button
+                        type="button"
+                        className="list-settings"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenVaultSettings(child);
+                        }}
+                        aria-label={`Update settings for ${child.name}`}
+                      >
+                        ⚙️
+                      </button>
+                      <button
+                        type="button"
+                        className="list-delete"
+                        onClick={() => onDeleteVault(child.id)}
+                        aria-label={`Delete ${child.name}`}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* ----- Inline nodes under sub-vault ----- */}
+                  {childExpanded && childNodes.length > 0 && (
+                    <ul className="tree-node-list">
+                      {childNodes.map((node) => {
+                        const nodeDimmed = isSearching && !isNodeMatch(node.id);
+                        const nodeHighlighted = isSearching && isNodeMatch(node.id);
+                        return (
+                          <li key={node.id + suffix} className={nodeDimmed ? "tree-dimmed" : ""}>
+                            <button
+                              type="button"
+                              className={`tree-node-item ${nodeHighlighted ? "tree-match" : ""}`}
+                              onClick={() => onSelectNodeEntry(node)}
+                            >
+                              <span className="tree-node-icon">📄</span>
+                              <span className="tree-node-text">
+                                <strong>{node.title}</strong>
+                                <small>{node.summary.slice(0, 60)}</small>
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        {/* ----- Inline nodes directly under the vault (no sub-vault) ----- */}
+        {expanded && vaultNodes.length > 0 && (
+          <ul className="tree-node-list">
+            {vaultNodes.map((node) => {
+              const nodeDimmed = isSearching && !isNodeMatch(node.id);
+              const nodeHighlighted = isSearching && isNodeMatch(node.id);
+              return (
+                <li key={node.id + suffix} className={nodeDimmed ? "tree-dimmed" : ""}>
+                  <button
+                    type="button"
+                    className={`tree-node-item ${nodeHighlighted ? "tree-match" : ""}`}
+                    onClick={() => onSelectNodeEntry(node)}
+                  >
+                    <span className="tree-node-icon">📄</span>
+                    <span className="tree-node-text">
+                      <strong>{node.title}</strong>
+                      <small>{node.summary.slice(0, 60)}</small>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </li>
+    );
+  }
+
   return (
     <aside className="pane pane-left">
       <div className="pane-header">
-        <h3>Vaults</h3>
-        <button type="button" onClick={onCreateVault}>
-          New Vault
+        <span className="sidebar-subtitle">Vaults</span>
+        <button type="button" className="new-vault-btn" onClick={onCreateVault}>
+          NEW
         </button>
       </div>
+
+      <div className="search-container">
+        <span className="search-icon">🔍</span>
+        <input
+          type="search"
+          className="search-input-field"
+          placeholder="Search vaults"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+      </div>
+
       <button type="button" className="dashboard-trigger" onClick={onOpenDashboard}>
-        🧠 Active Memory
+        <span className="active-memory-icon">🧠</span> Active Memory
       </button>
-      <input
-        type="search"
-        className="search-input"
-        placeholder="Search vaults & nodes..."
-        value={searchQuery}
-        onChange={(e) => setSearchQuery(e.target.value)}
-      />
-      {isSearching && (
-        <p className="search-result-count">
-          {resultCount === 0
-            ? "No results"
-            : `${resultCount} result${resultCount !== 1 ? "s" : ""}`}
-        </p>
-      )}
-      {error && <p className="pane-error">{error}</p>}
-      <ul className="vault-list">
-        {topLevelVaults.map((vault) => {
-          const effectiveTier = getEffectivePrivacy(vault.privacyTier);
-          const children = childrenByParent.get(vault.id) ?? [];
-          const vaultNodes = nodesByVaultId.get(vault.id) ?? [];
-          const hasExpandableContent = children.length > 0 || vaultNodes.length > 0;
-          const expanded = shouldExpand(vault.id, hasExpandableContent);
 
-          // Dimming logic: when searching, dim everything that is NOT on a match path
-          const isDimmed = isSearching && !isVaultOnMatchPath(vault.id);
-          const isHighlighted = isSearching && isVaultOnMatchPath(vault.id);
+      <div className="sidebar-scrollable-content">
+        {isSearching && (
+          <p className="search-result-count">
+            {resultCount === 0
+              ? "No results"
+              : `${resultCount} result${resultCount !== 1 ? "s" : ""}`}
+          </p>
+        )}
+        {error && <p className="pane-error">{error}</p>}
 
-          return (
-            <li key={vault.id} className={isDimmed ? "tree-dimmed" : ""}>
-              <div
-                className={`list-item ${selectedVaultId === vault.id ? "active" : ""} ${
-                  isHighlighted ? "tree-match" : ""
-                }`}
+        <div className="sidebar-section-container">
+          <h4 className="sidebar-section-title">Favorites</h4>
+          <ul className="vault-list">
+            {topLevelVaults
+              .filter((v) => favoriteVaultIds.includes(v.id))
+              .map((vault) => renderVault(vault, true))}
+            {topLevelVaults.filter((v) => favoriteVaultIds.includes(v.id)).length === 0 && (
+              <li className="empty-section-tip">No favorite vaults</li>
+            )}
+          </ul>
+        </div>
+
+        <div className="sidebar-section-container">
+          <h4 className="sidebar-section-title">Private</h4>
+          <ul className="vault-list">
+            {topLevelVaults.map((vault) => renderVault(vault, false))}
+            {topLevelVaults.length === 0 && (
+              <li className="empty-section-tip">No vaults available</li>
+            )}
+          </ul>
+        </div>
+      </div>
+
+      <div className="sidebar-footer">
+        <button type="button" className="settings-trigger" onClick={onOpenSettings}>
+          <span className="settings-icon">⚙️</span> Account and Settings
+        </button>
+      </div>
+
+      {authModalOpen &&
+        createPortal(
+          <div className="sidebar-auth-overlay" onClick={() => closeAuthModal(false)}>
+            <div
+              className="redacted-lock-screen sidebar-auth-modal"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <span className="redacted-lock-icon" aria-hidden="true">
+                🔒
+              </span>
+              <h4 className="redacted-lock-title">{authModalTitle}</h4>
+              <p className="redacted-lock-subtitle">{authModalSubtitle}</p>
+              <form
+                className="redacted-lock-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void submitAuthModal();
+                }}
               >
-                <button
-                  type="button"
-                  className={`tree-toggle ${!hasExpandableContent ? "empty" : ""}`}
-                  onClick={() => onToggleExpand(vault.id)}
-                  disabled={!hasExpandableContent}
-                  aria-label={expanded ? `Collapse ${vault.name}` : `Expand ${vault.name}`}
-                >
-                  {!hasExpandableContent ? "" : expanded ? "▾" : "▸"}
-                </button>
-                <div className="vault-header">
+                <input
+                  className="redacted-lock-input"
+                  type="password"
+                  value={authPasswordInput}
+                  onChange={(event) => setAuthPasswordInput(event.target.value)}
+                  placeholder={
+                    authMode === "setup" ? "Choose a master password" : "Master password"
+                  }
+                  autoFocus
+                />
+                <div className="sidebar-auth-actions">
                   <button
                     type="button"
-                    className="list-main"
-                    onClick={() => onSelectVaultEntry(vault)}
+                    className="redacted-lock-button sidebar-auth-cancel"
+                    onClick={() => closeAuthModal(false)}
                   >
-                    <span className="list-title-row">
-                      <span className="list-title-text">{vault.name}</span>
-                      <PrivacyBadge tier={effectiveTier} />
-                    </span>
-                    {vault.description && <small>{vault.description}</small>}
+                    Cancel
                   </button>
-                  <div className="list-actions">
-                    <button
-                      type="button"
-                      className="list-subvault"
-                      onClick={() => onCreateSubVault(vault.id, vault.name)}
-                      aria-label={`Create sub-vault under ${vault.name}`}
-                    >
-                      +
-                    </button>
-                    <button
-                      type="button"
-                      className="list-settings"
-                      onClick={() => onUpdateVaultPrivacy(vault, effectiveTier)}
-                      aria-label={`Update settings for ${vault.name}`}
-                    >
-                      ⚙️
-                    </button>
-                    <button
-                      type="button"
-                      className="list-delete"
-                      onClick={() => onDeleteVault(vault.id)}
-                      aria-label={`Delete ${vault.name}`}
-                    >
-                      ×
-                    </button>
+                  <button type="submit" className="redacted-lock-button">
+                    {authModalSubmitLabel}
+                  </button>
+                </div>
+              </form>
+              {authModalError && <p className="redacted-lock-error">{authModalError}</p>}
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {editingVault &&
+        createPortal(
+          <div className="sidebar-auth-overlay" onClick={() => setEditingVault(null)}>
+            <div
+              className="vault-settings-modal sidebar-auth-modal"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="modal-title">Vault Settings</h3>
+              <p className="modal-subtitle">Customize your vault details and security.</p>
+
+              <div className="settings-fields-grid">
+                <label className="settings-field">
+                  <span>Vault Name</span>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder="e.g. Work Notes"
+                    className="settings-input"
+                  />
+                </label>
+
+                <label className="settings-field">
+                  <span>Description</span>
+                  <input
+                    type="text"
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    placeholder="e.g. Budget lists and project plans"
+                    className="settings-input"
+                  />
+                </label>
+
+                <div className="settings-field">
+                  <span>Emoji / Icon</span>
+                  <div className="emoji-picker-container">
+                    <div className="emoji-picker-grid">
+                      {[
+                        "💳",
+                        "🪙",
+                        "💪",
+                        "📚",
+                        "👤",
+                        "💼",
+                        "🏠",
+                        "📱",
+                        "💻",
+                        "📝",
+                        "🧠",
+                        "💰",
+                        "🔑",
+                        "🎨",
+                        "🚀",
+                        "📂",
+                      ].map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          className={`emoji-choice-btn ${editIcon === emoji ? "selected" : ""}`}
+                          onClick={() => setEditIcon(emoji)}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="text"
+                      value={editIcon}
+                      onChange={(e) => setEditIcon(e.target.value)}
+                      placeholder="Or type a custom emoji/text"
+                      maxLength={10}
+                      className="settings-input custom-emoji-input"
+                    />
                   </div>
                 </div>
+
+                <label className="settings-field">
+                  <span>Privacy Tier</span>
+                  <select
+                    value={editPrivacyTier}
+                    onChange={(e) => setEditPrivacyTier(e.target.value)}
+                    className="settings-select"
+                  >
+                    <option value="open">Open (No restriction)</option>
+                    <option value="local_only">Local Only (Never cloud synced)</option>
+                    <option value="locked">Locked (Requires unlock to access)</option>
+                    <option value="redacted">Redacted (Hidden metadata/title)</option>
+                  </select>
+                </label>
               </div>
 
-              {/* ----- Expanded children: Sub-Vaults ----- */}
-              {expanded && children.length > 0 && (
-                <ul className="sub-vault-list">
-                  {children.map((child) => {
-                    const childEffectiveTier = getEffectivePrivacy(
-                      child.privacyTier,
-                      vault.privacyTier
-                    );
-                    const childNodes = nodesByVaultId.get(child.id) ?? [];
-                    const childIsDimmed =
-                      isSearching && !isSubVaultMatch(child.id) && !isVaultOnMatchPath(child.id);
-                    const childIsHighlighted = isSearching && isSubVaultMatch(child.id);
-                    const childHasContent = childNodes.length > 0;
-                    const childExpanded =
-                      childHasContent &&
-                      ((isSearching && isSubVaultMatch(child.id)) ||
-                        (expandedVaults[child.id] ?? false));
-
-                    return (
-                      <li key={child.id} className={childIsDimmed ? "tree-dimmed" : ""}>
-                        <div
-                          className={`list-item sub sub-vault-item ${
-                            selectedVaultId === child.id ? "active" : ""
-                          } ${childIsHighlighted ? "tree-match" : ""}`}
-                        >
-                          <button
-                            type="button"
-                            className={`tree-toggle ${!childHasContent ? "empty" : ""}`}
-                            onClick={() => onToggleExpand(child.id)}
-                            disabled={!childHasContent}
-                            aria-label={
-                              childExpanded ? `Collapse ${child.name}` : `Expand ${child.name}`
-                            }
-                          >
-                            {!childHasContent ? "" : childExpanded ? "▾" : "▸"}
-                          </button>
-                          <button
-                            type="button"
-                            className="list-main"
-                            onClick={() => onSelectVaultEntry(child)}
-                          >
-                            <span className="list-title-row">
-                              <span className="list-title-text">{child.name}</span>
-                              <PrivacyBadge tier={childEffectiveTier} />
-                            </span>
-                            {child.description && <small>{child.description}</small>}
-                          </button>
-                          <div className="list-actions">
-                            <button
-                              type="button"
-                              className="list-settings"
-                              onClick={() => onUpdateVaultPrivacy(child, childEffectiveTier)}
-                              aria-label={`Update settings for ${child.name}`}
-                            >
-                              ⚙️
-                            </button>
-                            <button
-                              type="button"
-                              className="list-delete"
-                              onClick={() => onDeleteVault(child.id)}
-                              aria-label={`Delete ${child.name}`}
-                            >
-                              ×
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* ----- Inline nodes under sub-vault ----- */}
-                        {childExpanded && childNodes.length > 0 && (
-                          <ul className="tree-node-list">
-                            {childNodes.map((node) => {
-                              const nodeDimmed = isSearching && !isNodeMatch(node.id);
-                              const nodeHighlighted = isSearching && isNodeMatch(node.id);
-                              return (
-                                <li key={node.id} className={nodeDimmed ? "tree-dimmed" : ""}>
-                                  <button
-                                    type="button"
-                                    className={`tree-node-item ${
-                                      nodeHighlighted ? "tree-match" : ""
-                                    }`}
-                                    onClick={() => onSelectNodeEntry(node)}
-                                  >
-                                    <span className="tree-node-icon">📄</span>
-                                    <span className="tree-node-text">
-                                      <strong>{node.title}</strong>
-                                      <small>{node.summary.slice(0, 60)}</small>
-                                    </span>
-                                  </button>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-
-              {/* ----- Inline nodes directly under the vault (no sub-vault) ----- */}
-              {expanded && vaultNodes.length > 0 && (
-                <ul className="tree-node-list">
-                  {vaultNodes.map((node) => {
-                    const nodeDimmed = isSearching && !isNodeMatch(node.id);
-                    const nodeHighlighted = isSearching && isNodeMatch(node.id);
-                    return (
-                      <li key={node.id} className={nodeDimmed ? "tree-dimmed" : ""}>
-                        <button
-                          type="button"
-                          className={`tree-node-item ${nodeHighlighted ? "tree-match" : ""}`}
-                          onClick={() => onSelectNodeEntry(node)}
-                        >
-                          <span className="tree-node-icon">📄</span>
-                          <span className="tree-node-text">
-                            <strong>{node.title}</strong>
-                            <small>{node.summary.slice(0, 60)}</small>
-                          </span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-      <button type="button" className="settings-trigger" onClick={onOpenSettings}>
-        ⚙️ Settings
-      </button>
-      {authModalOpen && (
-        <div className="sidebar-auth-overlay" onClick={() => closeAuthModal(false)}>
-          <div
-            className="redacted-lock-screen sidebar-auth-modal"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <span className="redacted-lock-icon" aria-hidden="true">
-              🔒
-            </span>
-            <h4 className="redacted-lock-title">{authModalTitle}</h4>
-            <p className="redacted-lock-subtitle">{authModalSubtitle}</p>
-            <form
-              className="redacted-lock-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submitAuthModal();
-              }}
-            >
-              <input
-                className="redacted-lock-input"
-                type="password"
-                value={authPasswordInput}
-                onChange={(event) => setAuthPasswordInput(event.target.value)}
-                placeholder={authMode === "setup" ? "Choose a master password" : "Master password"}
-                autoFocus
-              />
-              <div className="sidebar-auth-actions">
+              <div className="sidebar-auth-actions settings-modal-actions">
                 <button
                   type="button"
                   className="redacted-lock-button sidebar-auth-cancel"
-                  onClick={() => closeAuthModal(false)}
+                  onClick={() => setEditingVault(null)}
                 >
                   Cancel
                 </button>
-                <button type="submit" className="redacted-lock-button">
-                  {authModalSubmitLabel}
+                <button
+                  type="button"
+                  className="redacted-lock-button primary-btn"
+                  onClick={onSaveVaultSettings}
+                  disabled={!editName.trim()}
+                >
+                  Save Changes
                 </button>
               </div>
-            </form>
-            {authModalError && <p className="redacted-lock-error">{authModalError}</p>}
-          </div>
-        </div>
-      )}
+            </div>
+          </div>,
+          document.body
+        )}
     </aside>
   );
 }
