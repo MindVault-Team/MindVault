@@ -8,15 +8,15 @@
   min-width: 62px;
   text-align: right;
   font-size: 0.8rem;
-  color: #95a1c6;
+  color: rgba(27, 26, 23, 0.6);
 }
 
 .save-status.saving {
-  color: #b8d2ff;
+  color: var(--secondary-color);
 }
 
 .save-status.saved {
-  color: #96e2ba;
+  color: #2f855a;
 }
 
 .editor-form {
@@ -26,12 +26,22 @@
 
 .editor-form input,
 .editor-form textarea {
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(188, 108, 37, 0.2);
   border-radius: 10px;
-  background: rgba(5, 8, 14, 0.55);
-  color: #eff3ff;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--text-black);
   padding: 10px;
   font-size: 0.95rem;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.editor-form input:focus,
+.editor-form textarea:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(188, 108, 37, 0.08);
 }
 
 .editor-form textarea {
@@ -42,7 +52,7 @@
 .editor-breadcrumb {
   margin: 0;
   font-size: 0.8rem;
-  color: #8fa0c8;
+  color: rgba(27, 26, 23, 0.6);
 }
 
 .editor-meta {
@@ -56,21 +66,21 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #c3cae2;
+  color: var(--text-black);
   font-size: 0.82rem;
   flex-wrap: wrap;
 }
 
 .editor-privacy select {
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(188, 108, 37, 0.2);
   border-radius: 8px;
-  background: rgba(5, 8, 14, 0.7);
-  color: #eff3ff;
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--text-black);
   padding: 6px 8px;
 }
 
 .effective-privacy {
-  color: #9ba8c8;
+  color: rgba(27, 26, 23, 0.6);
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -80,40 +90,42 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #c3cae2;
+  color: var(--text-black);
   font-size: 0.82rem;
 }
 
 .editor-priority select {
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(188, 108, 37, 0.2);
   border-radius: 8px;
-  background: rgba(5, 8, 14, 0.7);
-  color: #eff3ff;
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--text-black);
   padding: 6px 8px;
 }
 
 .freeze-toggle {
   flex-shrink: 0;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(188, 108, 37, 0.15);
   border-radius: 8px;
   background: transparent;
   padding: 4px 6px;
   font-size: 0.82rem;
   cursor: pointer;
-  opacity: 0.4;
+  opacity: 0.45;
   transition:
     opacity 150ms ease,
-    border-color 150ms ease;
+    border-color 150ms ease,
+    background 150ms ease;
+  color: var(--text-black);
 }
 
 .freeze-toggle:hover {
-  opacity: 0.7;
+  opacity: 0.8;
 }
 
 .freeze-toggle.frozen {
   opacity: 1;
-  border-color: #63b3ed;
-  background: rgba(99, 179, 237, 0.12);
+  border-color: var(--primary-color);
+  background: rgba(188, 108, 37, 0.1);
 }
 
 .redacted-lock-screen {
@@ -124,10 +136,10 @@
   text-align: center;
   gap: 12px;
   padding: 48px 24px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(188, 108, 37, 0.15);
   border-radius: 12px;
-  background: rgba(8, 12, 22, 0.65);
-  color: #d8defa;
+  background: rgba(255, 255, 255, 0.45);
+  color: var(--text-black);
   min-height: 280px;
 }
 
@@ -142,14 +154,14 @@
   font-size: 1rem;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: #e3e9ff;
+  color: var(--primary-color);
 }
 
 .redacted-lock-subtitle {
   margin: 0;
   max-width: 340px;
   font-size: 0.85rem;
-  color: #95a1c6;
+  color: rgba(27, 26, 23, 0.6);
   line-height: 1.4;
 }
 
@@ -161,20 +173,20 @@
 }
 
 .redacted-lock-input {
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(188, 108, 37, 0.2);
   border-radius: 10px;
-  background: rgba(5, 8, 14, 0.7);
-  color: #eff3ff;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--text-black);
   padding: 9px 12px;
   font-size: 0.9rem;
   width: 100%;
 }
 
 .redacted-lock-button {
-  border: 1px solid rgba(143, 184, 255, 0.35);
+  border: 1px solid rgba(188, 108, 37, 0.25);
   border-radius: 10px;
-  background: rgba(143, 184, 255, 0.14);
-  color: #e7efff;
+  background: rgba(188, 108, 37, 0.08);
+  color: var(--primary-color);
   padding: 9px 12px;
   font-size: 0.88rem;
   cursor: pointer;
@@ -182,7 +194,7 @@
 }
 
 .redacted-lock-button:hover {
-  background: rgba(143, 184, 255, 0.22);
+  background: rgba(188, 108, 37, 0.15);
 }
 
 .editor-title {
@@ -206,9 +218,9 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid rgba(143, 184, 255, 0.25);
-  background: rgba(143, 184, 255, 0.1);
-  color: #dbe7ff;
+  border: 1px solid rgba(188, 108, 37, 0.2);
+  background: rgba(188, 108, 37, 0.08);
+  color: var(--text-black);
   border-radius: 999px;
   padding: 4px 9px;
   font-size: 0.78rem;
@@ -217,7 +229,7 @@
 .tag-pill button {
   border: none;
   background: transparent;
-  color: #dbe7ff;
+  color: var(--text-black);
   cursor: pointer;
   font-size: 0.82rem;
   line-height: 1;
@@ -225,10 +237,10 @@
 }
 
 .tag-input {
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(188, 108, 37, 0.2);
   border-radius: 10px;
-  background: rgba(5, 8, 14, 0.55);
-  color: #eff3ff;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--text-black);
   padding: 8px 10px;
   font-size: 0.9rem;
 }
@@ -239,12 +251,13 @@
   right: 0;
   top: calc(100% + 4px);
   z-index: 50;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(188, 108, 37, 0.2);
   border-radius: 10px;
-  background: rgba(12, 16, 28, 0.98);
+  background: rgba(250, 249, 247, 0.98);
   padding: 6px;
   display: grid;
   gap: 4px;
+  box-shadow: 0 4px 20px rgba(188, 108, 37, 0.08);
 }
 
 .tag-dropdown button {
@@ -252,15 +265,15 @@
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: #d2dcf5;
+  color: var(--text-black);
   text-align: left;
   cursor: pointer;
   padding: 6px 8px;
 }
 
 .tag-dropdown button:hover {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(188, 108, 37, 0.15);
+  background: rgba(188, 108, 37, 0.06);
 }
 
 .editor-detail {
@@ -273,13 +286,13 @@
 }
 
 .door-list.incoming .door-item {
-  background: rgba(126, 148, 196, 0.08);
+  background: rgba(113, 109, 35, 0.08);
 }
 
 .door-item {
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(188, 108, 37, 0.15);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.6);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -288,14 +301,14 @@
 }
 
 .door-item.orphaned {
-  border-color: rgba(255, 125, 125, 0.35);
-  background: rgba(255, 86, 86, 0.08);
+  border-color: rgba(229, 62, 62, 0.35);
+  background: rgba(229, 62, 62, 0.08);
 }
 
 .door-item button {
   border: none;
   background: transparent;
-  color: #cfd9f4;
+  color: var(--text-black);
   cursor: pointer;
   font-size: 1rem;
 }
@@ -307,10 +320,10 @@
 }
 
 .door-repoint {
-  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  border: 1px solid rgba(188, 108, 37, 0.2) !important;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.07) !important;
-  color: #e6eefc !important;
+  background: rgba(188, 108, 37, 0.07) !important;
+  color: var(--primary-color) !important;
   font-size: 0.76rem !important;
   line-height: 1;
   padding: 5px 8px !important;
@@ -324,40 +337,41 @@
 
 .door-main strong {
   font-size: 0.85rem;
-  color: #e2e9ff;
+  color: var(--text-black);
 }
 
 .door-label {
   font-size: 0.76rem;
-  color: #9cadcf;
+  color: rgba(27, 26, 23, 0.6);
 }
 
 .door-orphan-badge {
   font-size: 0.73rem;
-  color: #ff8a8a;
+  color: #e53e3e;
 }
 
 .door-picker {
   position: relative;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(188, 108, 37, 0.2);
   border-radius: 10px;
-  background: rgba(8, 11, 20, 0.9);
+  background: rgba(250, 249, 247, 0.95);
   padding: 8px;
   display: grid;
   gap: 8px;
+  box-shadow: 0 4px 20px rgba(188, 108, 37, 0.08);
 }
 
 .door-picker-mode {
   margin: 0;
   font-size: 0.78rem;
-  color: #ff8a8a;
+  color: #e53e3e;
 }
 
 .door-picker input {
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(188, 108, 37, 0.2);
   border-radius: 8px;
-  background: rgba(5, 8, 14, 0.55);
-  color: #eff3ff;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--text-black);
   padding: 7px 9px;
   font-size: 0.86rem;
 }
@@ -370,10 +384,10 @@
 }
 
 .door-search-results button {
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(188, 108, 37, 0.12);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  color: #dbe5ff;
+  background: rgba(255, 255, 255, 0.4);
+  color: var(--text-black);
   text-align: left;
   padding: 6px 8px;
   cursor: pointer;
@@ -382,7 +396,7 @@
 }
 
 .door-search-results small {
-  color: #97a7cb;
+  color: rgba(27, 26, 23, 0.6);
   font-size: 0.76rem;
 }
 
@@ -393,10 +407,10 @@
 }
 
 .door-create-row button {
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(188, 108, 37, 0.25);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #d4e2ff;
+  background: rgba(188, 108, 37, 0.08);
+  color: var(--primary-color);
   padding: 7px 10px;
   cursor: pointer;
 }
@@ -404,7 +418,7 @@
 .redacted-lock-error {
   margin: 0;
   font-size: 0.82rem;
-  color: #ff8b8b;
+  color: #e53e3e;
 }
 
 /* -----------------------------------------------------------------------
@@ -419,11 +433,11 @@
   z-index: 60;
   min-width: 220px;
   max-width: 320px;
-  border: 1px solid rgba(111, 190, 255, 0.35);
+  border: 1px solid rgba(188, 108, 37, 0.25);
   border-radius: 10px;
-  background: rgba(10, 14, 26, 0.96);
+  background: rgba(250, 249, 247, 0.96);
   backdrop-filter: blur(12px);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 8px 32px rgba(188, 108, 37, 0.1);
   padding: 6px;
   display: grid;
   gap: 3px;
@@ -433,7 +447,7 @@
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #7a95c4;
+  color: rgba(27, 26, 23, 0.6);
   padding: 4px 8px 2px;
 }
 
@@ -442,7 +456,7 @@
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: #d2dcf5;
+  color: var(--text-black);
   text-align: left;
   cursor: pointer;
   padding: 6px 8px;
@@ -455,8 +469,8 @@
 }
 
 .wikilink-option:hover {
-  border-color: rgba(111, 190, 255, 0.4);
-  background: rgba(111, 190, 255, 0.1);
+  border-color: rgba(188, 108, 37, 0.2);
+  background: rgba(188, 108, 37, 0.08);
 }
 
 .wikilink-option-icon {
@@ -474,7 +488,7 @@
 .wikilink-option-text strong {
   font-size: 0.84rem;
   font-weight: 600;
-  color: #dce7ff;
+  color: var(--text-black);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -482,16 +496,16 @@
 
 .wikilink-option-text small {
   font-size: 0.74rem;
-  color: #97a7cb;
+  color: rgba(27, 26, 23, 0.6);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .connections-section {
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(188, 108, 37, 0.15);
   border-radius: 12px;
-  background: rgba(10, 14, 24, 0.6);
+  background: rgba(255, 255, 255, 0.45);
   padding: 10px;
   display: grid;
   gap: 10px;
@@ -506,14 +520,14 @@
 .connections-header h4 {
   margin: 0;
   font-size: 0.9rem;
-  color: #d0daf5;
+  color: var(--primary-color);
 }
 
 .connections-header button {
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(188, 108, 37, 0.25);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  color: #d4e2ff;
+  background: rgba(188, 108, 37, 0.08);
+  color: var(--primary-color);
   padding: 6px 10px;
   cursor: pointer;
 }

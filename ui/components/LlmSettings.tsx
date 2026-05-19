@@ -58,6 +58,36 @@ function LlmSettings() {
     })();
   }, [showDevOnboardingTools]);
 
+  useEffect(() => {
+    let active = true;
+    if (!endpoint.trim()) return;
+    void (async () => {
+      try {
+        const fetchedModels = await getLlmModels(provider, endpoint.trim());
+        if (active) {
+          setModels(fetchedModels);
+        }
+      } catch (e) {
+        console.warn("Auto-fetch models failed:", e);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [provider, endpoint]);
+
+  useEffect(() => {
+    function handleSettingsChange() {
+      const nextProvider = getLlmProvider() === "lmstudio" ? "lmstudio" : "ollama";
+      setProvider(nextProvider);
+      setSelectedModel(getLlmModel(nextProvider));
+    }
+    window.addEventListener("mindvault:llm-settings-changed", handleSettingsChange);
+    return () => {
+      window.removeEventListener("mindvault:llm-settings-changed", handleSettingsChange);
+    };
+  }, []);
+
   async function refreshOnboardingDevState() {
     try {
       const done = await getOnboardingComplete();
@@ -216,7 +246,7 @@ function LlmSettings() {
         <select
           value={selectedModel}
           onChange={(event) => onSelectModel(event.target.value)}
-          disabled={models.length === 0}
+          disabled={models.length === 0 && !selectedModel}
         >
           {models.length === 0 ? <option value="">No models loaded</option> : null}
           {selectedModel && !models.includes(selectedModel) ? (

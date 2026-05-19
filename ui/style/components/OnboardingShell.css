@@ -6,16 +6,16 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(4, 7, 14, 0.82);
+  background: rgba(242, 240, 239, 0.85);
   backdrop-filter: blur(8px);
 }
 
 .onboarding-card {
   width: min(860px, 95vw);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(188, 108, 37, 0.2);
   border-radius: 16px;
-  background: rgba(9, 12, 22, 0.92);
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+  background: rgba(250, 249, 247, 0.95);
+  box-shadow: 0 18px 60px rgba(188, 108, 37, 0.15);
   padding: 20px;
   display: grid;
   gap: 18px;
@@ -38,22 +38,27 @@
   font-size: 0.76rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #98acd8;
+  color: rgba(27, 26, 23, 0.6);
 }
 
 .onboarding-header h1 {
   margin: 0;
   font-size: 1.4rem;
-  color: #e6eeff;
+  color: var(--primary-color);
 }
 
 .onboarding-skip {
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(188, 108, 37, 0.25);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #dce7ff;
+  background: rgba(188, 108, 37, 0.08);
+  color: var(--primary-color);
   padding: 8px 12px;
   cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.onboarding-skip:hover {
+  background: rgba(188, 108, 37, 0.15);
 }
 
 .onboarding-stepper {
@@ -66,9 +71,9 @@
 }
 
 .onboarding-step {
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(188, 108, 37, 0.15);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.5);
   padding: 10px;
   display: grid;
   gap: 4px;
@@ -78,33 +83,33 @@
   width: 22px;
   height: 22px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  border: 1px solid rgba(188, 108, 37, 0.25);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-size: 0.75rem;
-  color: #dce7ff;
+  color: var(--text-black);
 }
 
 .onboarding-step small {
   font-size: 0.78rem;
-  color: #b5c4e9;
+  color: rgba(27, 26, 23, 0.6);
 }
 
 .onboarding-step.active {
-  border-color: rgba(111, 190, 255, 0.75);
-  background: rgba(111, 190, 255, 0.16);
+  border-color: var(--primary-color);
+  background: rgba(188, 108, 37, 0.12);
 }
 
 .onboarding-step.done {
-  border-color: rgba(104, 211, 145, 0.45);
-  background: rgba(104, 211, 145, 0.13);
+  border-color: rgba(113, 109, 35, 0.45);
+  background: rgba(113, 109, 35, 0.13);
 }
 
 .onboarding-content {
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(188, 108, 37, 0.15);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.4);
   padding: 14px;
   min-height: 170px;
   display: grid;
@@ -115,12 +120,12 @@
 .onboarding-content h2 {
   margin: 0;
   font-size: 1.05rem;
-  color: #ebf2ff;
+  color: var(--primary-color);
 }
 
 .onboarding-content p {
   margin: 0;
-  color: #c3cfef;
+  color: var(--text-black);
 }
 
 .onboarding-form-grid,
@@ -136,19 +141,27 @@
 
 .onboarding-field span {
   font-size: 0.84rem;
-  color: #cfdbf9;
+  color: var(--text-black);
 }
 
 .onboarding-field input,
 .onboarding-field textarea,
 .onboarding-field select {
   width: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(188, 108, 37, 0.2);
   border-radius: 10px;
-  background: rgba(10, 14, 26, 0.8);
-  color: #ecf3ff;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--text-black);
   padding: 9px 10px;
   font: inherit;
+  transition: border-color 150ms ease;
+}
+
+.onboarding-field input:focus,
+.onboarding-field textarea:focus,
+.onboarding-field select:focus {
+  outline: none;
+  border-color: var(--primary-color);
 }
 
 .onboarding-field textarea {
@@ -163,12 +176,17 @@
 }
 
 .onboarding-inline-button {
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(188, 108, 37, 0.2);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #e8efff;
+  background: rgba(188, 108, 37, 0.08);
+  color: var(--primary-color);
   padding: 8px 12px;
   cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.onboarding-inline-button:hover:not(:disabled) {
+  background: rgba(188, 108, 37, 0.15);
 }
 
 .onboarding-inline-button:disabled {
@@ -182,9 +200,9 @@
 }
 
 .onboarding-proposal-card {
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(188, 108, 37, 0.15);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.4);
   padding: 10px;
   display: grid;
   gap: 7px;
@@ -200,22 +218,22 @@
 .onboarding-proposal-header h3 {
   margin: 0;
   font-size: 0.95rem;
-  color: #edf3ff;
+  color: var(--text-black);
 }
 
 .onboarding-proposal-header small {
-  color: #a8bbe6;
+  color: rgba(27, 26, 23, 0.6);
   font-size: 0.75rem;
 }
 
 .onboarding-meta {
   font-size: 0.82rem;
-  color: #b6c6ea !important;
+  color: rgba(27, 26, 23, 0.6) !important;
 }
 
 .onboarding-hint {
   font-size: 0.84rem;
-  color: #a5f2cd !important;
+  color: var(--secondary-color) !important;
 }
 
 .onboarding-done-note {
@@ -231,17 +249,26 @@
 }
 
 .onboarding-actions button {
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(188, 108, 37, 0.25);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #e8efff;
+  background: rgba(188, 108, 37, 0.08);
+  color: var(--primary-color);
   padding: 8px 14px;
   cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.onboarding-actions button:hover:not(:disabled) {
+  background: rgba(188, 108, 37, 0.15);
 }
 
 .onboarding-actions button.primary {
-  border-color: rgba(143, 184, 255, 0.35);
-  background: rgba(143, 184, 255, 0.16);
+  border-color: var(--primary-color);
+  background: rgba(188, 108, 37, 0.16);
+}
+
+.onboarding-actions button.primary:hover:not(:disabled) {
+  background: rgba(188, 108, 37, 0.24);
 }
 
 .onboarding-actions button:disabled,
@@ -251,6 +278,6 @@
 }
 
 .onboarding-error {
-  color: #ffb8b8 !important;
+  color: #e53e3e !important;
   font-size: 0.86rem;
 }

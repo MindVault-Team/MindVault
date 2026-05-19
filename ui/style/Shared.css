@@ -30,9 +30,9 @@ body,
   display: inline-flex;
   gap: 10px;
   padding: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(188, 108, 37, 0.2);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.4);
 }
 
 .provider-toggle label {
@@ -41,22 +41,28 @@ body,
   gap: 6px;
   padding: 4px 6px;
   font-size: 0.82rem;
-  color: #d6e5ff;
+  color: var(--text-black);
 }
 
 .provider-toggle input {
-  accent-color: #8fb8ff;
+  accent-color: var(--primary-color);
 }
 
 .search-input {
   width: 100%;
   margin: 0 0 12px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(188, 108, 37, 0.2);
   border-radius: 10px;
-  background: rgba(5, 8, 14, 0.55);
-  color: #eff3ff;
+  background: var(--background-secondary);
+  color: var(--text-black);
   padding: 8px 10px;
   font-size: 0.9rem;
+  transition: border-color 150ms ease;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
 }
 
 .right-pane-stack {

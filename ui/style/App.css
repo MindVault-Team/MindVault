@@ -115,13 +115,14 @@
 
 .pane {
   height: 100%;
-  background: rgba(17, 20, 31, 0.88);
-  color: #e2e8f0;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(12px);
+  background: rgba(250, 249, 247, 0.88);
+  color: var(--text-black);
+  border-right: 1px solid rgba(188, 108, 37, 0.15);
+  border-left: 1px solid rgba(188, 108, 37, 0.15);
+  backdrop-filter: blur(16px);
   padding: 16px;
   overflow: auto;
+  box-shadow: 0 8px 32px 0 rgba(188, 108, 37, 0.05);
 }
 
 .pane-header {
@@ -134,17 +135,18 @@
 .pane-header h3 {
   margin: 0;
   font-size: 1rem;
+  color: var(--primary-color);
 }
 
 .pane-empty,
 .pane-status {
-  color: #c6cde4;
+  color: rgba(27, 26, 23, 0.6);
 }
 
 .pane-header button {
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.06);
-  color: #eaf0ff;
+  border: 1px solid rgba(188, 108, 37, 0.25);
+  background: rgba(188, 108, 37, 0.08);
+  color: var(--primary-color);
   border-radius: 10px;
   padding: 8px 16px;
   cursor: pointer;
@@ -152,11 +154,18 @@
   justify-content: center;
   align-items: center;
   width: auto;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.pane-header button:hover {
+  background: rgba(188, 108, 37, 0.15);
 }
 
 .pane-error {
   margin: 0 0 12px;
-  color: #ffb8b8;
+  color: #e53e3e;
   font-size: 0.9rem;
 }
 

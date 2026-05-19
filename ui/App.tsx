@@ -90,7 +90,7 @@ function App() {
     }
   }
 
-  function onSelectVault(vaultId: string) {
+  function onSelectVault(vaultId: string | null) {
     setSelectedVaultId(vaultId);
     setSelectedNodeId(null);
     setShowDashboard(false);
@@ -191,7 +191,12 @@ function App() {
         {onboardingResolved && needsOnboarding ? null : (
           <>
             <section className="zen-canvas" onClick={onZenCanvasClick}>
-              <ChatPanel selectedNodeIds={scopeNodeIds} scope={assemblerScope} />
+              <ChatPanel
+                selectedNodeIds={scopeNodeIds}
+                scope={assemblerScope}
+                selectedVaultId={selectedVaultId}
+                onSelectVault={onSelectVault}
+              />
             </section>
 
             <div

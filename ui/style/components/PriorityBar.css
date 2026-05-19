@@ -3,7 +3,7 @@
   width: 80px;
   height: 8px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(188, 108, 37, 0.1);
   overflow: hidden;
   flex-shrink: 0;
 }
@@ -34,7 +34,7 @@
   align-items: center;
   justify-content: center;
   font-size: 0.58rem;
-  color: #f3f6ff;
+  color: #fff;
   pointer-events: none;
-  text-shadow: 0 0 3px rgba(0, 0, 0, 0.6);
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
 }

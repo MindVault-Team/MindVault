@@ -19,6 +19,7 @@ export function setLlmProvider(provider: string): void {
   const normalized = provider.trim().toLowerCase();
   const next = normalized === "lmstudio" ? "lmstudio" : "ollama";
   window.localStorage.setItem(LLM_PROVIDER_KEY, next);
+  window.dispatchEvent(new CustomEvent("mindvault:llm-settings-changed"));
 }
 
 export function getOllamaEndpoint(): string {
@@ -68,4 +69,5 @@ export function getLlmModel(provider?: string): string {
 
 export function setLlmModel(provider: string, model: string): void {
   window.localStorage.setItem(`mindvault.llm.${provider}.model`, model.trim());
+  window.dispatchEvent(new CustomEvent("mindvault:llm-settings-changed"));
 }

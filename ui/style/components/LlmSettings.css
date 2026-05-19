@@ -7,33 +7,34 @@
 .settings-field {
   display: grid;
   gap: 6px;
-  color: #c3cae2;
+  color: var(--text-black);
   font-size: 0.82rem;
 }
 
 .settings-field input,
 .settings-field select {
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(188, 108, 37, 0.2);
   border-radius: 10px;
-  background: rgba(5, 8, 14, 0.55);
-  color: #eff3ff;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--text-black);
   padding: 10px;
   font-size: 0.9rem;
 }
 
 .settings-action {
-  border: 1px solid rgba(143, 184, 255, 0.25);
+  border: 1px solid rgba(188, 108, 37, 0.25);
   border-radius: 10px;
-  background: rgba(143, 184, 255, 0.1);
-  color: #d6e5ff;
+  background: rgba(188, 108, 37, 0.08);
+  color: var(--primary-color);
   padding: 9px 12px;
   font-size: 0.86rem;
   cursor: pointer;
   text-align: left;
+  transition: background 150ms ease;
 }
 
 .settings-action:hover {
-  background: rgba(143, 184, 255, 0.18);
+  background: rgba(188, 108, 37, 0.15);
 }
 
 .settings-action.save {
@@ -43,7 +44,7 @@
 .llm-settings-dev {
   margin-top: 8px;
   padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-top: 1px solid rgba(188, 108, 37, 0.15);
   display: grid;
   gap: 8px;
 }
@@ -54,17 +55,17 @@
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #98acd8;
+  color: rgba(27, 26, 23, 0.6);
 }
 
 .llm-settings-dev-line {
   margin: 0;
   font-size: 0.82rem;
-  color: #c3cae2;
+  color: var(--text-black);
 }
 
 .llm-settings-dev-line strong {
-  color: #e8efff;
+  color: var(--primary-color);
   font-weight: 600;
 }
 
@@ -77,7 +78,7 @@
 .llm-settings-dev-note {
   margin: 0;
   font-size: 0.72rem;
-  color: #7f90b8;
+  color: rgba(27, 26, 23, 0.5);
 }
 
 .llm-settings-dev-field {
@@ -97,10 +98,10 @@
   padding: 10px;
   max-height: 220px;
   overflow: auto;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(188, 108, 37, 0.15);
   border-radius: 10px;
-  background: rgba(5, 8, 14, 0.65);
-  color: #c8d4f0;
+  background: rgba(255, 255, 255, 0.45);
+  color: var(--text-black);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.72rem;
   line-height: 1.4;
