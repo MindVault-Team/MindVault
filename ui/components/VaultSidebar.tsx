@@ -669,9 +669,9 @@ function VaultSidebar({
           </div>
         </div>
 
-        {/* ----- Expanded children: Sub-Vaults ----- */}
-        {expanded && children.length > 0 && (
-          <ul className="sub-vault-list">
+        {/* ----- Expanded children: Sub-Vaults and Nodes ----- */}
+        {expanded && (children.length > 0 || vaultNodes.length > 0) && (
+          <ul className="tree-child-list">
             {children.map((child) => {
               const childEffectiveTier = getEffectivePrivacy(child.privacyTier, vault.privacyTier);
               const childNodes = nodesByVaultId.get(child.id) ?? [];
@@ -738,7 +738,7 @@ function VaultSidebar({
 
                   {/* ----- Inline nodes under sub-vault ----- */}
                   {childExpanded && childNodes.length > 0 && (
-                    <ul className="tree-node-list">
+                    <ul className="tree-child-list">
                       {childNodes.map((node) => {
                         const nodeDimmed = isSearching && !isNodeMatch(node.id);
                         const nodeHighlighted = isSearching && isNodeMatch(node.id);
@@ -763,12 +763,8 @@ function VaultSidebar({
                 </li>
               );
             })}
-          </ul>
-        )}
 
-        {/* ----- Inline nodes directly under the vault (no sub-vault) ----- */}
-        {expanded && vaultNodes.length > 0 && (
-          <ul className="tree-node-list">
+            {/* ----- Inline nodes directly under the vault (no sub-vault) ----- */}
             {vaultNodes.map((node) => {
               const nodeDimmed = isSearching && !isNodeMatch(node.id);
               const nodeHighlighted = isSearching && isNodeMatch(node.id);
