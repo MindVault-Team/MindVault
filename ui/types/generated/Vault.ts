@@ -14,4 +14,5 @@ export type Vault = {
   updatedAt: string;
   deletedAt: string | null;
   meta: string;
+  uiMetadata: string;
 };

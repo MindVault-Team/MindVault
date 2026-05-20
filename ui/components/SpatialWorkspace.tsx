@@ -1,0 +1,1155 @@
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import {
+  listVaults,
+  createVault,
+  deleteVault,
+  updateVault,
+  updateVaultPosition,
+} from "../services/vaults";
+import { listAllDoors } from "../services/doors";
+import { getNodes, createNode, deleteNode, updateNode } from "../services/nodes";
+import { sanitizeSvgText } from "../utils/svgSanitizer";
+import type { Vault, Node, Door } from "../types/generated";
+import "../style/components/SpatialWorkspace.css";
+
+interface SpatialWorkspaceProps {
+  selectedVaultId: string | null;
+  selectedNodeId: string | null;
+  onSelectVault: (id: string | null) => void;
+  onSelectNode: (id: string) => void;
+  refreshKey: number;
+  onVaultCreated?: (id: string) => void;
+  onVaultDeleted?: (id: string) => void;
+  onNodeCreated?: (id: string) => void;
+  onNodeDeleted?: (id: string) => void;
+}
+
+export default function SpatialWorkspace({
+  selectedVaultId,
+  selectedNodeId,
+  onSelectVault,
+  onSelectNode,
+  refreshKey,
+  onVaultCreated,
+  onVaultDeleted,
+  onNodeCreated,
+  onNodeDeleted,
+}: SpatialWorkspaceProps) {
+  // --- Data States ---
+  const [vaults, setVaults] = useState<Vault[]>([]);
+  const [nodes, setNodes] = useState<Node[]>([]);
+  const [doors, setDoors] = useState<Door[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [localRefresh, setLocalRefresh] = useState(0);
+
+  // --- Canvas Navigation States ---
+  const [zoom, setZoom] = useState(0.85);
+  const [pan, setPan] = useState({ x: 100, y: 80 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  // --- Card Dragging States ---
+  const [activeDragCardId, setActiveDragCardId] = useState<string | null>(null);
+  const [cardDragOffset, setCardDragOffset] = useState({ x: 0, y: 0 });
+  const [cardPositions, setCardPositions] = useState<Record<string, { x: number; y: number }>>({});
+
+  // --- Inline Editing States ---
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingItemType, setEditingItemType] = useState<"vault" | "subvault" | "node" | null>(
+    null
+  );
+  const [editValue, setEditValue] = useState("");
+
+  // --- Inline Adding States ---
+  const [addingToVaultId, setAddingToVaultId] = useState<string | null>(null);
+  const [addingToSubvaultId, setAddingToSubvaultId] = useState<string | null>(null);
+  const [addingType, setAddingType] = useState<"node" | "subvault" | "global-vault" | null>(null);
+  const [addInputValue, setAddInputValue] = useState("");
+  const [isAddingBusy, setIsAddingBusy] = useState(false);
+
+  // --- Deletion Confirmation States ---
+  const [deleteArmedId, setDeleteArmedId] = useState<string | null>(null);
+  const [deleteArmedTimer, setDeleteArmedTimer] = useState<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+
+  // --- Search State ---
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const worldRef = useRef<HTMLDivElement>(null);
+
+  // Load backend data
+  const loadData = async () => {
+    try {
+      const [allVaults, allNodes, allDoors] = await Promise.all([
+        listVaults(),
+        getNodes(),
+        listAllDoors(),
+      ]);
+
+      setVaults(allVaults);
+      setNodes(allNodes);
+
+      // Filter doors based on valid endpoints
+      if (allDoors.data) {
+        setDoors(allDoors.data);
+      }
+
+      // Initialize/sync card coordinates from SQLite uiMetadata column
+      const coords: Record<string, { x: number; y: number }> = {};
+      allVaults.forEach((v, index) => {
+        // Subvaults don't float independently; they are nested in their parent card
+        if (v.parentVaultId) return;
+
+        let parsed: { position?: { x: number; y: number } } = {};
+        try {
+          if (v.uiMetadata) {
+            parsed = JSON.parse(v.uiMetadata);
+          }
+        } catch (e) {
+          console.error("Error parsing uiMetadata for vault:", v.id, e);
+        }
+
+        coords[v.id] = parsed.position || {
+          x: (index % 3) * 350 + 80,
+          y: Math.floor(index / 3) * 550 + 100,
+        };
+      });
+      setCardPositions(coords);
+    } catch (e) {
+      console.error("Failed to load workspace data:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadData();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [refreshKey, localRefresh]);
+
+  // Clean up delete arming timer
+  useEffect(() => {
+    return () => {
+      if (deleteArmedTimer) clearTimeout(deleteArmedTimer);
+    };
+  }, [deleteArmedTimer]);
+
+  // --- Drag & Zoom Canvas Handlers ---
+  const handleMouseDown = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (
+      target.closest(".spatial-vault-card") ||
+      target.closest(".spatial-header-bar") ||
+      target.closest(".spatial-bottom-bar")
+    ) {
+      return;
+    }
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (activeDragCardId) {
+      // Dragging a card
+      const newX = Math.round(e.clientX / zoom - cardDragOffset.x);
+      const newY = Math.round(e.clientY / zoom - cardDragOffset.y);
+
+      setCardPositions((prev) => ({
+        ...prev,
+        [activeDragCardId]: { x: newX, y: newY },
+      }));
+
+      // Call debounced updater
+      void updateVaultPosition(activeDragCardId, newX, newY);
+      return;
+    }
+
+    if (!isDragging) return;
+    setPan({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y,
+    });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    setActiveDragCardId(null);
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    const zoomFactor = 1.08;
+    let newZoom = zoom;
+    if (e.deltaY < 0) {
+      newZoom = Math.min(zoom * zoomFactor, 2.5);
+    } else {
+      newZoom = Math.max(zoom / zoomFactor, 0.25);
+    }
+    setZoom(newZoom);
+  };
+
+  const resetView = () => {
+    setZoom(0.85);
+    setPan({ x: 100, y: 80 });
+  };
+
+  // --- Card Dragging MouseDown Handler ---
+  const handleCardMouseDown = (
+    e: React.MouseEvent,
+    vaultId: string,
+    currentPos: { x: number; y: number }
+  ) => {
+    e.stopPropagation();
+    const target = e.target as HTMLElement;
+    if (
+      target.closest("button") ||
+      target.closest("input") ||
+      target.closest(".spatial-node-row") ||
+      target.closest(".spatial-subvault-container")
+    ) {
+      return;
+    }
+    setActiveDragCardId(vaultId);
+    setCardDragOffset({
+      x: e.clientX / zoom - currentPos.x,
+      y: e.clientY / zoom - currentPos.y,
+    });
+  };
+
+  // --- Direct Data Management CRUD Handlers ---
+
+  // Inline rename saving
+  const handleRenameSave = async (id: string, type: "vault" | "subvault" | "node") => {
+    if (editingItemType) {
+      console.log(`Renaming ${editingItemType} to: ${editValue}`);
+    }
+    if (!editValue.trim()) {
+      setEditingItemId(null);
+      return;
+    }
+    try {
+      if (type === "vault" || type === "subvault") {
+        await updateVault({ id, name: editValue.trim() });
+      } else {
+        await updateNode({ id, title: editValue.trim() });
+      }
+      setLocalRefresh((prev) => prev + 1);
+    } catch (e) {
+      console.error("Failed to rename item:", e);
+    } finally {
+      setEditingItemId(null);
+    }
+  };
+
+  const handleRenameKeyDown = (
+    e: React.KeyboardEvent,
+    id: string,
+    type: "vault" | "subvault" | "node"
+  ) => {
+    if (e.key === "Enter") {
+      handleRenameSave(id, type);
+    } else if (e.key === "Escape") {
+      setEditingItemId(null);
+    }
+  };
+
+  // Inline adding confirmer
+  const handleAddSubmit = async () => {
+    if (!addInputValue.trim()) {
+      setAddingType(null);
+      return;
+    }
+    setIsAddingBusy(true);
+    try {
+      if (addingType === "global-vault") {
+        const v = await createVault({ name: addInputValue.trim() });
+        if (onVaultCreated) onVaultCreated(v.id);
+      } else if (addingType === "subvault" && addingToVaultId) {
+        await createVault({ name: addInputValue.trim(), parentVaultId: addingToVaultId });
+      } else if (addingType === "node" && addingToVaultId) {
+        const n = await createNode({
+          vaultId: addingToVaultId,
+          subVaultId: addingToSubvaultId || undefined,
+          title: addInputValue.trim(),
+          summary: "",
+          nodeType: "Public",
+        });
+        if (onNodeCreated) onNodeCreated(n.id);
+      }
+      setLocalRefresh((prev) => prev + 1);
+      setAddInputValue("");
+      setAddingType(null);
+    } catch (e) {
+      console.error("Failed to create inline item:", e);
+    } finally {
+      setIsAddingBusy(false);
+    }
+  };
+
+  const handleAddKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleAddSubmit();
+    } else if (e.key === "Escape") {
+      setAddingType(null);
+    }
+  };
+
+  // Safe two-click deletion confirmation
+  const handleArmDelete = (e: React.MouseEvent, itemId: string) => {
+    e.stopPropagation();
+    if (deleteArmedId === itemId) {
+      // Confirmed deletion!
+      executeDelete(itemId);
+      setDeleteArmedId(null);
+      if (deleteArmedTimer) clearTimeout(deleteArmedTimer);
+    } else {
+      // First click: arm
+      setDeleteArmedId(itemId);
+      if (deleteArmedTimer) clearTimeout(deleteArmedTimer);
+      const timer = setTimeout(() => {
+        setDeleteArmedId(null);
+      }, 3500); // Reset arm state after 3.5 seconds
+      setDeleteArmedTimer(timer);
+    }
+  };
+
+  const executeDelete = async (itemId: string) => {
+    try {
+      // Check if it's a node
+      const isNode = nodes.some((n) => n.id === itemId);
+      if (isNode) {
+        const deleted = await deleteNode(itemId);
+        if (deleted && onNodeDeleted) onNodeDeleted(itemId);
+      } else {
+        const deleted = await deleteVault(itemId);
+        if (deleted && onVaultDeleted) onVaultDeleted(itemId);
+      }
+      setLocalRefresh((prev) => prev + 1);
+    } catch (e) {
+      console.error("Failed to delete item:", e);
+    }
+  };
+
+  // --- Search glowing & dimming evaluations ---
+  const query = searchQuery.toLowerCase().trim();
+
+  // Evaluates matching metrics for nodes
+  const isNodeMatch = (n: Node) => {
+    if (!query) return false;
+    // Redacted node titles are redacted, but backend privacy tier handles data leakage.
+    // If redacted and query doesn't match redacted string, let's skip.
+    const isRedacted = n.privacyTier === "Redacted";
+    const title = isRedacted ? "[redacted]" : n.title.toLowerCase();
+    const summary = isRedacted ? "" : n.summary.toLowerCase();
+    return title.includes(query) || summary.includes(query);
+  };
+
+  // Evaluates matching metrics for subvaults
+  const isSubvaultMatch = (sv: Vault) => {
+    if (!query) return false;
+    if (sv.name.toLowerCase().includes(query)) return true;
+    const svNodes = nodes.filter((n) => n.subVaultId === sv.id);
+    return svNodes.some(isNodeMatch);
+  };
+
+  // Evaluates matching metrics for vaults
+  const isVaultMatch = (v: Vault) => {
+    if (!query) return false;
+    if (v.name.toLowerCase().includes(query)) return true;
+
+    // Check direct nodes
+    const directNodes = nodes.filter((n) => n.vaultId === v.id && !n.subVaultId);
+    if (directNodes.some(isNodeMatch)) return true;
+
+    // Check child subvaults
+    const childSubvaults = vaults.filter((sv) => sv.parentVaultId === v.id);
+    return childSubvaults.some(isSubvaultMatch);
+  };
+
+  // Filter top level vaults to render
+  const topVaults = useMemo(() => {
+    return vaults.filter((v) => !v.parentVaultId);
+  }, [vaults]);
+
+  // Compute subvault list for each top-level vault
+  const getSubvaultsFor = (vaultId: string) => {
+    return vaults.filter((v) => v.parentVaultId === vaultId);
+  };
+
+  // Compute nodes list for a specific vault and optional subvault
+  const getNodesFor = (vaultId: string, subvaultId: string | null) => {
+    return nodes.filter(
+      (n) => n.vaultId === vaultId && (subvaultId ? n.subVaultId === subvaultId : !n.subVaultId)
+    );
+  };
+
+  // --- GPU-Accelerated World Coordinate SVG Connectors ---
+  // Calculates center coordinate positions of elements to draw connection curves mathematically
+  const connectionPaths = useMemo(() => {
+    if (loading || topVaults.length === 0) return [];
+
+    const paths: Array<{
+      id: string;
+      d: string;
+      label: string;
+      isLocked: boolean;
+      active: boolean;
+      middlePoint: { x: number; y: number };
+    }> = [];
+
+    // Helper to calculate card relative coordinate offset mathematically
+    const getNodeCenterPos = (
+      vaultId: string,
+      subvaultId: string | null,
+      nodeId: string | null
+    ) => {
+      const cardPos = cardPositions[vaultId];
+      if (!cardPos) return null;
+
+      // Card layout constants matching SpatialWorkspace.css padding and margins
+      const cardWidth = 280;
+      const paddingTop = 14;
+      const headerHeight = 40;
+      const rowHeight = 36;
+      const containerGap = 10;
+      const subvaultHeaderHeight = 28;
+
+      const vaultNodes = nodes.filter((n) => n.vaultId === vaultId && !n.subVaultId);
+      const subVaultsList = vaults.filter((sv) => sv.parentVaultId === vaultId);
+
+      if (!nodeId) {
+        // Target is the Vault header itself
+        return {
+          left: { x: cardPos.x, y: cardPos.y + paddingTop + headerHeight / 2 },
+          right: { x: cardPos.x + cardWidth, y: cardPos.y + paddingTop + headerHeight / 2 },
+        };
+      }
+
+      // Check if it's a direct vault node
+      const directIndex = vaultNodes.findIndex((n) => n.id === nodeId);
+      if (directIndex !== -1) {
+        const offset = paddingTop + headerHeight + directIndex * rowHeight + rowHeight / 2;
+        return {
+          left: { x: cardPos.x, y: cardPos.y + offset },
+          right: { x: cardPos.x + cardWidth, y: cardPos.y + offset },
+        };
+      }
+
+      // Scan subvault offsets
+      let currentOffset = paddingTop + headerHeight + vaultNodes.length * rowHeight;
+      for (const sv of subVaultsList) {
+        currentOffset += containerGap; // Margin inside subvault card
+        const svNodes = nodes.filter((n) => n.subVaultId === sv.id);
+
+        if (sv.id === subvaultId) {
+          const svNodeIndex = svNodes.findIndex((n) => n.id === nodeId);
+          if (svNodeIndex !== -1) {
+            const offset =
+              currentOffset + subvaultHeaderHeight + 6 + svNodeIndex * rowHeight + rowHeight / 2;
+            return {
+              left: { x: cardPos.x + 8, y: cardPos.y + offset },
+              right: { x: cardPos.x + cardWidth - 8, y: cardPos.y + offset },
+            };
+          }
+        }
+
+        // Add previous subvault's total height to current offset
+        currentOffset += 8 + subvaultHeaderHeight + 6 + svNodes.length * rowHeight + 34 + 8;
+      }
+
+      // Fallback
+      return {
+        left: { x: cardPos.x, y: cardPos.y + paddingTop + headerHeight / 2 },
+        right: { x: cardPos.x + cardWidth, y: cardPos.y + paddingTop + headerHeight / 2 },
+      };
+    };
+
+    doors.forEach((door) => {
+      // Source node
+      const srcNode = nodes.find((n) => n.id === door.sourceNodeId);
+      if (!srcNode) return;
+
+      const srcPosObj = getNodeCenterPos(srcNode.vaultId, srcNode.subVaultId, srcNode.id);
+      if (!srcPosObj) return;
+
+      // Target node or target vault
+      let tgtX = 0;
+      let tgtY = 0;
+      let targetIsLockedOrRedacted = false;
+
+      if (door.targetNodeId) {
+        const tgtNode = nodes.find((n) => n.id === door.targetNodeId);
+        if (!tgtNode) return;
+
+        const tgtPosObj = getNodeCenterPos(tgtNode.vaultId, tgtNode.subVaultId, tgtNode.id);
+        if (!tgtPosObj) return;
+
+        // Choose closest face point
+        if (srcPosObj.right.x < tgtPosObj.left.x) {
+          tgtX = tgtPosObj.left.x;
+          tgtY = tgtPosObj.left.y;
+        } else {
+          tgtX = tgtPosObj.right.x;
+          tgtY = tgtPosObj.right.y;
+        }
+
+        if (tgtNode.privacyTier === "Redacted" || tgtNode.privacyTier === "Locked") {
+          targetIsLockedOrRedacted = true;
+        }
+      } else if (door.targetVaultId) {
+        const tgtVault = vaults.find((v) => v.id === door.targetVaultId);
+        if (!tgtVault) return;
+
+        const tgtPosObj = getNodeCenterPos(tgtVault.id, null, null);
+        if (!tgtPosObj) return;
+
+        if (srcPosObj.right.x < tgtPosObj.left.x) {
+          tgtX = tgtPosObj.left.x;
+          tgtY = tgtPosObj.left.y;
+        } else {
+          tgtX = tgtPosObj.right.x;
+          tgtY = tgtPosObj.right.y;
+        }
+
+        if (tgtVault.privacyTier === "Redacted" || tgtVault.privacyTier === "Locked") {
+          targetIsLockedOrRedacted = true;
+        }
+      } else {
+        return;
+      }
+
+      // Source pos coordinates
+      const srcX = srcPosObj.right.x;
+      const srcY = srcPosObj.right.y;
+
+      // SVG pathway drawing cubic bezier control anchors
+      const controlDistance = Math.max(100, Math.abs(tgtX - srcX) / 2);
+      const d = `M ${srcX} ${srcY} C ${srcX + controlDistance} ${srcY}, ${tgtX - controlDistance} ${tgtY}, ${tgtX} ${tgtY}`;
+
+      // Middle curve calculation for dynamic label tags
+      const midX = (srcX + tgtX) / 2;
+      const midY = (srcY + tgtY) / 2;
+
+      // Evaluate visual active indicator
+      const active = selectedNodeId === srcNode.id || selectedNodeId === door.targetNodeId;
+      const isLocked =
+        srcNode.privacyTier === "Redacted" ||
+        srcNode.privacyTier === "Locked" ||
+        targetIsLockedOrRedacted;
+
+      paths.push({
+        id: door.id,
+        d,
+        label: door.label || "",
+        isLocked,
+        active,
+        middlePoint: { x: midX, y: midY },
+      });
+    });
+
+    return paths;
+  }, [loading, topVaults, cardPositions, nodes, vaults, doors, selectedNodeId]);
+
+  if (loading) {
+    return (
+      <div
+        className="spatial-canvas-container"
+        style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
+      >
+        <p style={{ color: "#b56a37", fontWeight: "bold" }}>Loading Spatial Workspace...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="spatial-canvas-container"
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onWheel={handleWheel}
+    >
+      {/* Top Glassmorphic bar controls */}
+      <div className="spatial-header-bar">
+        <span className="spatial-header-title">Spatial Workspace</span>
+        <button
+          className="spatial-header-btn"
+          onClick={() => {
+            setAddingType("global-vault");
+            setAddInputValue("");
+          }}
+          title="Create a new top level vault card"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+          >
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          Vault
+        </button>
+        <button
+          className="spatial-header-btn"
+          onClick={resetView}
+          title="Reset zoom and center canvas"
+        >
+          Reset View
+        </button>
+      </div>
+
+      {/* Global additions form inside header if active */}
+      {addingType === "global-vault" && (
+        <div
+          style={{
+            position: "absolute",
+            top: "70px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "white",
+            padding: "10px",
+            borderRadius: "12px",
+            border: "1.5px solid #b56a37",
+            zIndex: 100,
+            boxShadow: "0 10px 25px rgba(0,0,0,0.1)",
+            display: "flex",
+            gap: "8px",
+          }}
+        >
+          <input
+            className="spatial-add-inline-input"
+            autoFocus
+            placeholder="New Vault Name..."
+            value={addInputValue}
+            onChange={(e) => setAddInputValue(e.target.value)}
+            onKeyDown={handleAddKeyDown}
+            disabled={isAddingBusy}
+            style={{ width: "180px" }}
+          />
+          <button
+            className="spatial-add-confirm-btn"
+            onClick={handleAddSubmit}
+            disabled={isAddingBusy}
+          >
+            {isAddingBusy ? "..." : "Create"}
+          </button>
+          <button
+            className="spatial-add-cancel-btn"
+            onClick={() => setAddingType(null)}
+            disabled={isAddingBusy}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Primary Transform World Container */}
+      <div
+        ref={worldRef}
+        className="spatial-canvas-world"
+        style={{
+          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+        }}
+      >
+        {/* SVG Pathways Connector Overlay */}
+        <svg className="spatial-svg-overlay">
+          <defs>
+            <marker
+              id="arrow"
+              viewBox="0 0 10 10"
+              refX="8"
+              refY="5"
+              markerWidth="6"
+              markerHeight="6"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#b56a37" />
+            </marker>
+          </defs>
+          {connectionPaths.map((path) => (
+            <g key={path.id}>
+              {/* Backing pathway path */}
+              <path
+                className={`spatial-connection-line ${path.active ? "connection-active" : ""} ${path.isLocked ? "connection-locked" : ""}`}
+                d={path.d}
+              />
+              {/* Sanitized Dynamic labels overlays */}
+              {path.label && (
+                <g
+                  className="spatial-connection-badge"
+                  transform={`translate(${path.middlePoint.x}, ${path.middlePoint.y})`}
+                >
+                  <rect className="spatial-badge-bg" x={-40} y={-10} width={80} height={20} />
+                  <text
+                    className={`spatial-badge-text ${path.isLocked ? "spatial-badge-text-locked" : ""}`}
+                    y={1}
+                  >
+                    {path.isLocked ? "🔒 Locked" : sanitizeSvgText(path.label)}
+                  </text>
+                </g>
+              )}
+              {/* Locked/Redacted badge indicator overlay */}
+              {!path.label && path.isLocked && (
+                <g
+                  className="spatial-connection-badge"
+                  transform={`translate(${path.middlePoint.x}, ${path.middlePoint.y})`}
+                >
+                  <circle cx={0} cy={0} r={10} fill="white" stroke="#a3a09a" strokeWidth={1} />
+                  <text y={2.5} style={{ fontSize: "9px", textAnchor: "middle" }}>
+                    🔒
+                  </text>
+                </g>
+              )}
+            </g>
+          ))}
+        </svg>
+
+        {/* Absolute positioned Vault Cards grid list */}
+        {topVaults.map((vault) => {
+          const pos = cardPositions[vault.id] || { x: 100, y: 100 };
+          const subvaultsList = getSubvaultsFor(vault.id);
+          const directNodesList = getNodesFor(vault.id, null);
+
+          // Evaluate search matches
+          const hasQuery = query.length > 0;
+          const isVMatch = isVaultMatch(vault);
+          const shouldDim = hasQuery && !isVMatch;
+          const isLocked = vault.privacyTier === "Locked" || vault.privacyTier === "Redacted";
+
+          // Card css class mappings
+          let cardClasses = "spatial-vault-card";
+          if (selectedVaultId === vault.id) cardClasses += " active-selection";
+          if (shouldDim) cardClasses += " spatial-dimmed";
+          if (hasQuery && isVMatch) cardClasses += " spatial-glow";
+          if (isLocked) cardClasses += " spatial-locked-card";
+
+          return (
+            <div
+              key={vault.id}
+              className={cardClasses}
+              style={{
+                left: `${pos.x}px`,
+                top: `${pos.y}px`,
+                zIndex: selectedVaultId === vault.id ? 5 : 2,
+              }}
+              onMouseDown={(e) => handleCardMouseDown(e, vault.id, pos)}
+            >
+              {/* Vault card header */}
+              <div className="spatial-card-header">
+                <div className="spatial-card-title-area" onClick={() => onSelectVault(vault.id)}>
+                  <span className="spatial-card-emoji">{vault.icon || "📂"}</span>
+                  {editingItemId === vault.id ? (
+                    <input
+                      className="spatial-card-name-input"
+                      autoFocus
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      onBlur={() => handleRenameSave(vault.id, "vault")}
+                      onKeyDown={(e) => handleRenameKeyDown(e, vault.id, "vault")}
+                    />
+                  ) : (
+                    <span
+                      className="spatial-card-name"
+                      onDoubleClick={() => {
+                        if (isLocked) return;
+                        setEditingItemId(vault.id);
+                        setEditingItemType("vault");
+                        setEditValue(vault.name);
+                      }}
+                    >
+                      {vault.name}
+                    </span>
+                  )}
+                </div>
+
+                <div className="spatial-card-actions">
+                  {/* Privacy Icon */}
+                  {isLocked && <span style={{ fontSize: "0.8rem", color: "#a3a09a" }}>🔒</span>}
+
+                  {/* Inline edit pencil button */}
+                  {!isLocked && (
+                    <button
+                      className="spatial-card-action-btn"
+                      onClick={() => {
+                        setEditingItemId(vault.id);
+                        setEditingItemType("vault");
+                        setEditValue(vault.name);
+                      }}
+                    >
+                      ✏️
+                    </button>
+                  )}
+
+                  {/* Armed deletion button */}
+                  <button
+                    className={`spatial-card-action-btn ${deleteArmedId === vault.id ? "delete-armed" : ""}`}
+                    onClick={(e) => handleArmDelete(e, vault.id)}
+                    title="Click twice to delete vault card"
+                  >
+                    {deleteArmedId === vault.id ? "Confirm?" : "🗑️"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Direct Node Rows list */}
+              <ul className="spatial-node-list">
+                {directNodesList.map((node) => {
+                  const nodeMatch = isNodeMatch(node);
+                  const isRedacted = node.privacyTier === "Redacted";
+                  const isNSelected = selectedNodeId === node.id;
+
+                  let nodeClasses = "spatial-node-row";
+                  if (isNSelected) nodeClasses += " selected-node";
+                  if (hasQuery && nodeMatch) nodeClasses += " spatial-glow-node";
+                  if (isRedacted) nodeClasses += " spatial-redacted-node-row";
+
+                  return (
+                    <li
+                      key={node.id}
+                      className={nodeClasses}
+                      onClick={() => !isRedacted && onSelectNode(node.id)}
+                    >
+                      <div className="spatial-node-title-area">
+                        <span className="spatial-node-icon">{isRedacted ? "⚠️" : "📄"}</span>
+                        {editingItemId === node.id ? (
+                          <input
+                            className="spatial-node-title-input"
+                            autoFocus
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onBlur={() => handleRenameSave(node.id, "node")}
+                            onKeyDown={(e) => handleRenameKeyDown(e, node.id, "node")}
+                          />
+                        ) : (
+                          <span
+                            className={`spatial-node-title ${isRedacted ? "spatial-redacted-label" : ""}`}
+                            onDoubleClick={() => {
+                              if (isRedacted || isLocked) return;
+                              setEditingItemId(node.id);
+                              setEditingItemType("node");
+                              setEditValue(node.title);
+                            }}
+                          >
+                            {isRedacted ? "[REDACTED]" : node.title}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="spatial-card-actions">
+                        {!isRedacted && !isLocked && (
+                          <button
+                            className="spatial-card-action-btn"
+                            onClick={() => {
+                              setEditingItemId(node.id);
+                              setEditingItemType("node");
+                              setEditValue(node.title);
+                            }}
+                          >
+                            ✏️
+                          </button>
+                        )}
+                        {!isRedacted && (
+                          <button
+                            className={`spatial-card-action-btn ${deleteArmedId === node.id ? "delete-armed" : ""}`}
+                            onClick={(e) => handleArmDelete(e, node.id)}
+                          >
+                            {deleteArmedId === node.id ? "Ok?" : "🗑️"}
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {/* Subvault Nesting Groups inside Card */}
+              {subvaultsList.map((subvault) => {
+                const subNodes = getNodesFor(vault.id, subvault.id);
+                const subvaultLocked =
+                  subvault.privacyTier === "Locked" || subvault.privacyTier === "Redacted";
+
+                return (
+                  <div key={subvault.id} className="spatial-subvault-container">
+                    <div className="spatial-subvault-header">
+                      <div
+                        className="spatial-subvault-title-area"
+                        onClick={() => onSelectVault(subvault.id)}
+                      >
+                        {editingItemId === subvault.id ? (
+                          <input
+                            className="spatial-subvault-title-input"
+                            autoFocus
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onBlur={() => handleRenameSave(subvault.id, "subvault")}
+                            onKeyDown={(e) => handleRenameKeyDown(e, subvault.id, "subvault")}
+                          />
+                        ) : (
+                          <span
+                            onDoubleClick={() => {
+                              if (subvaultLocked) return;
+                              setEditingItemId(subvault.id);
+                              setEditingItemType("subvault");
+                              setEditValue(subvault.name);
+                            }}
+                          >
+                            {subvault.icon || "📁"} {subvault.name}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="spatial-card-actions">
+                        {subvaultLocked && <span>🔒</span>}
+                        {!subvaultLocked && (
+                          <button
+                            className="spatial-card-action-btn"
+                            onClick={() => {
+                              setEditingItemId(subvault.id);
+                              setEditingItemType("subvault");
+                              setEditValue(subvault.name);
+                            }}
+                          >
+                            ✏️
+                          </button>
+                        )}
+                        <button
+                          className={`spatial-card-action-btn ${deleteArmedId === subvault.id ? "delete-armed" : ""}`}
+                          onClick={(e) => handleArmDelete(e, subvault.id)}
+                        >
+                          {deleteArmedId === subvault.id ? "Ok?" : "🗑️"}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Nodes under Subvault */}
+                    <ul className="spatial-node-list">
+                      {subNodes.map((node) => {
+                        const nodeMatch = isNodeMatch(node);
+                        const isRedacted = node.privacyTier === "Redacted";
+                        const isNSelected = selectedNodeId === node.id;
+
+                        let nodeClasses = "spatial-node-row";
+                        if (isNSelected) nodeClasses += " selected-node";
+                        if (hasQuery && nodeMatch) nodeClasses += " spatial-glow-node";
+                        if (isRedacted) nodeClasses += " spatial-redacted-node-row";
+
+                        return (
+                          <li
+                            key={node.id}
+                            className={nodeClasses}
+                            onClick={() => !isRedacted && onSelectNode(node.id)}
+                          >
+                            <div className="spatial-node-title-area">
+                              <span className="spatial-node-icon">{isRedacted ? "⚠️" : "📄"}</span>
+                              {editingItemId === node.id ? (
+                                <input
+                                  className="spatial-node-title-input"
+                                  autoFocus
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  onBlur={() => handleRenameSave(node.id, "node")}
+                                  onKeyDown={(e) => handleRenameKeyDown(e, node.id, "node")}
+                                />
+                              ) : (
+                                <span
+                                  className={`spatial-node-title ${isRedacted ? "spatial-redacted-label" : ""}`}
+                                  onDoubleClick={() => {
+                                    if (isRedacted || subvaultLocked || isLocked) return;
+                                    setEditingItemId(node.id);
+                                    setEditingItemType("node");
+                                    setEditValue(node.title);
+                                  }}
+                                >
+                                  {isRedacted ? "[REDACTED]" : node.title}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="spatial-card-actions">
+                              {!isRedacted && !subvaultLocked && !isLocked && (
+                                <button
+                                  className="spatial-card-action-btn"
+                                  onClick={() => {
+                                    setEditingItemId(node.id);
+                                    setEditingItemType("node");
+                                    setEditValue(node.title);
+                                  }}
+                                >
+                                  ✏️
+                                </button>
+                              )}
+                              {!isRedacted && (
+                                <button
+                                  className={`spatial-card-action-btn ${deleteArmedId === node.id ? "delete-armed" : ""}`}
+                                  onClick={(e) => handleArmDelete(e, node.id)}
+                                >
+                                  {deleteArmedId === node.id ? "Ok?" : "🗑️"}
+                                </button>
+                              )}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+
+                    {/* Inline Node creation inside Subvault */}
+                    {!subvaultLocked && (
+                      <div style={{ marginTop: "4px" }}>
+                        {addingType === "node" && addingToSubvaultId === subvault.id ? (
+                          <div className="spatial-add-input-wrapper">
+                            <input
+                              className="spatial-add-inline-input"
+                              autoFocus
+                              placeholder="Node title..."
+                              value={addInputValue}
+                              onChange={(e) => setAddInputValue(e.target.value)}
+                              onKeyDown={handleAddKeyDown}
+                              disabled={isAddingBusy}
+                            />
+                            <button
+                              className="spatial-add-confirm-btn"
+                              onClick={handleAddSubmit}
+                              disabled={isAddingBusy}
+                            >
+                              {isAddingBusy ? "..." : "Add"}
+                            </button>
+                            <button
+                              className="spatial-add-cancel-btn"
+                              onClick={() => setAddingType(null)}
+                              disabled={isAddingBusy}
+                            >
+                              x
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            className="spatial-add-inline-btn"
+                            onClick={() => {
+                              setAddingType("node");
+                              setAddingToVaultId(vault.id);
+                              setAddingToSubvaultId(subvault.id);
+                              setAddInputValue("");
+                            }}
+                          >
+                            + node
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Inline adding tools at the bottom of the top level vault card */}
+              {!isLocked && (
+                <div style={{ display: "flex", gap: "8px", marginTop: "6px" }}>
+                  {/* Inline Node inside Card directly */}
+                  {addingType === "node" && addingToVaultId === vault.id && !addingToSubvaultId ? (
+                    <div className="spatial-add-input-wrapper">
+                      <input
+                        className="spatial-add-inline-input"
+                        autoFocus
+                        placeholder="Node title..."
+                        value={addInputValue}
+                        onChange={(e) => setAddInputValue(e.target.value)}
+                        onKeyDown={handleAddKeyDown}
+                        disabled={isAddingBusy}
+                      />
+                      <button
+                        className="spatial-add-confirm-btn"
+                        onClick={handleAddSubmit}
+                        disabled={isAddingBusy}
+                      >
+                        {isAddingBusy ? "..." : "Add"}
+                      </button>
+                      <button
+                        className="spatial-add-cancel-btn"
+                        onClick={() => setAddingType(null)}
+                        disabled={isAddingBusy}
+                      >
+                        x
+                      </button>
+                    </div>
+                  ) : addingType === "subvault" && addingToVaultId === vault.id ? (
+                    <div className="spatial-add-input-wrapper">
+                      <input
+                        className="spatial-add-inline-input"
+                        autoFocus
+                        placeholder="Subvault name..."
+                        value={addInputValue}
+                        onChange={(e) => setAddInputValue(e.target.value)}
+                        onKeyDown={handleAddKeyDown}
+                        disabled={isAddingBusy}
+                      />
+                      <button
+                        className="spatial-add-confirm-btn"
+                        onClick={handleAddSubmit}
+                        disabled={isAddingBusy}
+                      >
+                        {isAddingBusy ? "..." : "Add"}
+                      </button>
+                      <button
+                        className="spatial-add-cancel-btn"
+                        onClick={() => setAddingType(null)}
+                        disabled={isAddingBusy}
+                      >
+                        x
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        className="spatial-add-inline-btn"
+                        style={{ flex: 1 }}
+                        onClick={() => {
+                          setAddingType("node");
+                          setAddingToVaultId(vault.id);
+                          setAddingToSubvaultId(null);
+                          setAddInputValue("");
+                        }}
+                      >
+                        + node
+                      </button>
+                      <button
+                        className="spatial-add-inline-btn"
+                        style={{ flex: 1 }}
+                        onClick={() => {
+                          setAddingType("subvault");
+                          setAddingToVaultId(vault.id);
+                          setAddInputValue("");
+                        }}
+                      >
+                        + subvault
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Sleek dynamic bottom control bar */}
+      <div className="spatial-bottom-bar">
+        <div className="spatial-zoom-indicator">Scale: {Math.round(zoom * 100)}%</div>
+
+        <div className="spatial-search-wrapper">
+          <span className="spatial-search-icon">🔍</span>
+          <input
+            className="spatial-search-input"
+            placeholder="Search spatial vault, subvaults & nodes..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}

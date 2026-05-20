@@ -7,6 +7,7 @@ import PriorityDashboard from "./components/PriorityDashboard";
 import LlmSettings from "./components/LlmSettings";
 import ScopeIndicator from "./components/ScopeIndicator";
 import ChatPanel from "./components/ChatPanel";
+import SpatialWorkspace from "./components/SpatialWorkspace";
 import ActiveMemoryPanel from "./components/ActiveMemoryPanel";
 import OnboardingShell from "./components/OnboardingShell";
 import type { ContextAssemblerScope } from "./constants/contextBudget";
@@ -128,6 +129,7 @@ function App() {
   const [showDashboard, setShowDashboard] = useState<boolean>(false);
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [sidebarModalOpen, setSidebarModalOpen] = useState<boolean>(false);
+  const [viewMode, setViewMode] = useState<"chat" | "spatial">("chat");
   const leftPaneExpanded = leftPanePinned;
   const rightPaneExpanded = rightPanePinned;
   const scopeNodeIds = useMemo(() => (selectedNodeId ? [selectedNodeId] : []), [selectedNodeId]);
@@ -368,13 +370,43 @@ function App() {
             </button>
 
             <section className="zen-canvas" onClick={onZenCanvasClick} style={zenCanvasStyle}>
-              <ChatPanel
-                selectedNodeIds={scopeNodeIds}
-                scope={assemblerScope}
-                selectedVaultId={selectedVaultId}
-                onSelectVault={onSelectVault}
-                onOpenSettings={onOpenSettings}
-              />
+              {/* Floating segment view toggle */}
+              <div className="canvas-view-toggle-pill" onClick={(e) => e.stopPropagation()}>
+                <button
+                  className={`canvas-view-toggle-btn ${viewMode === "chat" ? "active" : ""}`}
+                  onClick={() => setViewMode("chat")}
+                >
+                  💬 Recall / Chat
+                </button>
+                <button
+                  className={`canvas-view-toggle-btn ${viewMode === "spatial" ? "active" : ""}`}
+                  onClick={() => setViewMode("spatial")}
+                >
+                  🕸️ Spatial Workspace
+                </button>
+              </div>
+
+              {viewMode === "spatial" ? (
+                <SpatialWorkspace
+                  selectedVaultId={selectedVaultId}
+                  selectedNodeId={selectedNodeId}
+                  onSelectVault={onSelectVault}
+                  onSelectNode={onSelectNode}
+                  refreshKey={vaultRefreshKey + nodeRefreshKey}
+                  onVaultCreated={onVaultCreated}
+                  onVaultDeleted={onVaultDeleted}
+                  onNodeCreated={onNodeCreated}
+                  onNodeDeleted={onNodeDeleted}
+                />
+              ) : (
+                <ChatPanel
+                  selectedNodeIds={scopeNodeIds}
+                  scope={assemblerScope}
+                  selectedVaultId={selectedVaultId}
+                  onSelectVault={onSelectVault}
+                  onOpenSettings={onOpenSettings}
+                />
+              )}
             </section>
 
             <div

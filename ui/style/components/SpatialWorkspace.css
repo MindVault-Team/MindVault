@@ -1,0 +1,595 @@
+/* Spatial Workspace main canvas layout */
+.spatial-canvas-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: #faf9f7;
+  background-image: radial-gradient(rgba(188, 108, 37, 0.08) 1.5px, transparent 1.5px);
+  background-size: 28px 28px;
+  cursor: grab;
+  user-select: none;
+}
+
+.spatial-canvas-container:active {
+  cursor: grabbing;
+}
+
+/* Transformed coordinate space */
+.spatial-canvas-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* Glassmorphic header controls */
+.spatial-header-bar {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(253, 252, 250, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(188, 108, 37, 0.15);
+  border-radius: 24px;
+  padding: 6px 16px;
+  box-shadow: 0 8px 32px rgba(27, 26, 23, 0.06);
+  z-index: 10;
+  pointer-events: auto;
+}
+
+.spatial-header-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #b56a37;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.spatial-header-btn {
+  background: transparent;
+  border: 1px solid rgba(188, 108, 37, 0.2);
+  color: #5c5954;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 150ms ease;
+}
+
+.spatial-header-btn:hover {
+  background: rgba(188, 108, 37, 0.08);
+  border-color: #b56a37;
+  color: #1b1a17;
+}
+
+/* Sleek bottom control bar */
+.spatial-bottom-bar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: rgba(253, 252, 250, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(188, 108, 37, 0.15);
+  border-radius: 24px;
+  padding: 6px 20px;
+  box-shadow: 0 8px 32px rgba(27, 26, 23, 0.06);
+  z-index: 10;
+  pointer-events: auto;
+  width: 90%;
+  max-width: 520px;
+}
+
+.spatial-zoom-indicator {
+  font-size: 0.8rem;
+  color: #7d7a75;
+  font-family: monospace;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.spatial-search-wrapper {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.spatial-search-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(188, 108, 37, 0.2);
+  border-radius: 16px;
+  color: #1b1a17;
+  padding: 6px 12px 6px 32px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  transition: all 180ms ease;
+}
+
+.spatial-search-input:focus {
+  outline: none;
+  background: #ffffff;
+  border-color: #b56a37;
+  box-shadow: 0 0 0 3px rgba(188, 108, 37, 0.1);
+}
+
+.spatial-search-icon {
+  position: absolute;
+  left: 10px;
+  color: #7d7a75;
+  pointer-events: none;
+}
+
+/* Vault and Subvault cards in world coordinate space */
+.spatial-vault-card {
+  position: absolute;
+  width: 280px;
+  background: rgba(253, 252, 250, 0.95);
+  border: 1.5px solid rgba(188, 108, 37, 0.25);
+  border-radius: 14px;
+  box-shadow: 0 4px 20px rgba(27, 26, 23, 0.04);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  cursor: grab;
+  transition:
+    opacity 250ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 250ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: left, top, opacity, box-shadow;
+}
+
+.spatial-vault-card:active {
+  cursor: grabbing;
+}
+
+.spatial-vault-card.active-selection {
+  border-color: #b56a37;
+  box-shadow:
+    0 8px 30px rgba(188, 108, 37, 0.12),
+    0 0 0 1px rgba(188, 108, 37, 0.1);
+}
+
+/* HSL Search Glow & Dimming states */
+.spatial-dimmed {
+  opacity: 0.22 !important;
+  pointer-events: auto;
+}
+
+.spatial-dimmed:hover {
+  opacity: 0.65 !important;
+}
+
+.spatial-glow {
+  border-color: hsl(28, 80%, 48%) !important;
+  box-shadow:
+    0 0 20px rgba(188, 108, 37, 0.35),
+    0 4px 16px rgba(188, 108, 37, 0.15) !important;
+}
+
+.spatial-glow-node {
+  box-shadow: 0 0 10px rgba(188, 108, 37, 0.3) !important;
+  border-color: rgba(188, 108, 37, 0.5) !important;
+  background-color: rgba(188, 108, 37, 0.05) !important;
+}
+
+/* Privacy styling for Locked states */
+.spatial-locked-card {
+  border-style: dashed !important;
+  border-color: #a3a09a !important;
+  background: rgba(246, 245, 242, 0.95) !important;
+}
+
+/* Privacy styling for Redacted state nodes */
+.spatial-redacted-node-row {
+  background: rgba(229, 62, 62, 0.05) !important;
+  border: 1px solid rgba(229, 62, 62, 0.25) !important;
+  color: #e53e3e !important;
+  font-weight: bold;
+  pointer-events: none !important;
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
+.spatial-redacted-label {
+  color: #e53e3e !important;
+  font-family: monospace;
+  letter-spacing: 0.05em;
+}
+
+/* Card Header */
+.spatial-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid rgba(188, 108, 37, 0.1);
+  padding-bottom: 8px;
+}
+
+.spatial-card-title-area {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.spatial-card-emoji {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.spatial-card-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #4a4742;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.spatial-card-name-input {
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-family: inherit;
+  color: #4a4742;
+  background: #ffffff;
+  border: 1px solid #b56a37;
+  border-radius: 4px;
+  padding: 2px 6px;
+  width: 100%;
+}
+
+.spatial-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.spatial-card-action-btn {
+  background: transparent;
+  border: none;
+  color: #8c8983;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 120ms ease;
+}
+
+.spatial-card-action-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #1b1a17;
+}
+
+.spatial-card-action-btn.delete-armed {
+  background: #e53e3e !important;
+  color: #ffffff !important;
+  font-size: 0.68rem;
+  width: auto;
+  padding: 0 6px;
+  font-weight: bold;
+}
+
+/* Subvault nesting structure */
+.spatial-subvault-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(188, 108, 37, 0.03);
+  border: 1px solid rgba(188, 108, 37, 0.1);
+  border-radius: 10px;
+  padding: 8px;
+  margin-top: 4px;
+}
+
+.spatial-subvault-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  font-weight: bold;
+  color: #716d23;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed rgba(188, 108, 37, 0.08);
+}
+
+.spatial-subvault-title-area {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.spatial-subvault-title-input {
+  font-size: 0.8rem;
+  font-weight: bold;
+  font-family: inherit;
+  color: #716d23;
+  background: #ffffff;
+  border: 1px solid #b56a37;
+  border-radius: 4px;
+  padding: 1px 4px;
+  width: 100%;
+}
+
+/* Node items within cards */
+.spatial-node-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.spatial-node-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #ffffff;
+  border: 1px solid #eae7e2;
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: all 120ms ease;
+  min-height: 32px;
+}
+
+.spatial-node-row:hover {
+  border-color: rgba(188, 108, 37, 0.35);
+  background: rgba(188, 108, 37, 0.02);
+}
+
+.spatial-node-row.selected-node {
+  border-color: #b56a37;
+  background: #fbf6f0;
+}
+
+.spatial-node-title-area {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.spatial-node-icon {
+  font-size: 0.82rem;
+  color: #9c9993;
+  flex-shrink: 0;
+}
+
+.spatial-node-title {
+  font-size: 0.8rem;
+  font-weight: 550;
+  color: #4a4742;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.spatial-node-title-input {
+  font-size: 0.8rem;
+  font-weight: 550;
+  font-family: inherit;
+  color: #4a4742;
+  background: #ffffff;
+  border: 1px solid #b56a37;
+  border-radius: 4px;
+  padding: 1px 4px;
+  width: 100%;
+}
+
+/* Inputs for Adding inline items */
+.spatial-add-inline-btn {
+  background: transparent;
+  border: 1px dashed rgba(188, 108, 37, 0.25);
+  color: #7d7a75;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 150ms ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.spatial-add-inline-btn:hover {
+  background: rgba(188, 108, 37, 0.04);
+  border-color: rgba(188, 108, 37, 0.45);
+  color: #1b1a17;
+}
+
+.spatial-add-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.spatial-add-inline-input {
+  flex: 1;
+  background: #ffffff;
+  border: 1px solid #b56a37;
+  border-radius: 6px;
+  color: #1b1a17;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  font-family: inherit;
+}
+
+.spatial-add-inline-input:focus {
+  outline: none;
+}
+
+.spatial-add-confirm-btn {
+  background: #b56a37;
+  border: none;
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.spatial-add-cancel-btn {
+  background: #eae7e2;
+  border: none;
+  color: #5c5954;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* Background connections layer */
+.spatial-svg-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.spatial-connection-line {
+  fill: none;
+  stroke: rgba(188, 108, 37, 0.35);
+  stroke-width: 2px;
+  transition:
+    stroke 200ms ease,
+    stroke-width 200ms ease;
+}
+
+.spatial-connection-line.connection-active {
+  stroke: #b56a37;
+  stroke-width: 3px;
+}
+
+.spatial-connection-line.connection-locked {
+  stroke: #a3a09a !important;
+  stroke-width: 2px;
+  stroke-dasharray: 6 4;
+  animation: svgDashMove 25s linear infinite;
+}
+
+/* Animated moving dashes */
+@keyframes svgDashMove {
+  to {
+    stroke-dashoffset: -200;
+  }
+}
+
+.spatial-connection-badge {
+  pointer-events: auto;
+  cursor: pointer;
+  opacity: 0.9;
+  transition: opacity 150ms ease;
+}
+
+.spatial-connection-badge:hover {
+  opacity: 1;
+}
+
+.spatial-badge-bg {
+  fill: rgba(253, 252, 250, 0.95);
+  stroke: rgba(188, 108, 37, 0.35);
+  stroke-width: 1px;
+  rx: 10;
+  ry: 10;
+}
+
+.spatial-connection-badge:hover .spatial-badge-bg {
+  stroke: #b56a37;
+  fill: #ffffff;
+}
+
+.spatial-badge-text {
+  font-family: monospace;
+  font-size: 9px;
+  fill: #7d7a75;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.spatial-badge-text-locked {
+  fill: #a3a09a;
+}
+
+/* Sleek floating segment view mode toggle in canvas */
+.canvas-view-toggle-pill {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 45;
+  display: flex;
+  background: rgba(253, 252, 250, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(188, 108, 37, 0.18);
+  border-radius: 20px;
+  padding: 3px;
+  box-shadow: 0 4px 16px rgba(188, 108, 37, 0.05);
+  pointer-events: auto;
+}
+
+.canvas-view-toggle-btn {
+  background: transparent;
+  border: none;
+  color: #7d7a75;
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 17px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 180ms ease;
+}
+
+.canvas-view-toggle-btn:hover:not(.active) {
+  color: #1b1a17;
+  background: rgba(188, 108, 37, 0.05);
+}
+
+.canvas-view-toggle-btn.active {
+  background: #b56a37;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(188, 108, 37, 0.2);
+}

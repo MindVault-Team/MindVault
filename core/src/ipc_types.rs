@@ -20,6 +20,7 @@ pub struct Vault {
     pub updated_at: String,
     pub deleted_at: Option<String>,
     pub meta: String,
+    pub ui_metadata: String,
 }
 
 #[derive(Debug, Deserialize, TS)]

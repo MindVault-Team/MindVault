@@ -101,6 +101,14 @@ export function vaultUpdate(input: VaultUpdateInput) {
   return invokeTyped<Vault>("vault_update", { input });
 }
 
+export function vaultUpdatePosition(vaultId: string, x: number, y: number) {
+  return invokeTyped<boolean>("vault_update_position", { vaultId, x, y });
+}
+
+export function vaultGet(vaultId: string) {
+  return invokeTyped<Vault | null>("vault_get", { vaultId });
+}
+
 export function nodeCreate(input: NodeCreateInput) {
   return invokeTyped<Node>("node_create", { input });
 }
@@ -155,6 +163,10 @@ export function doorListOutgoing(nodeId: string) {
 
 export function doorListIncoming(nodeId: string) {
   return invokeTyped<Backlink[]>("door_list_incoming", { nodeId });
+}
+
+export function doorListAll() {
+  return invokeTyped<Door[]>("door_list_all");
 }
 
 export function doorDelete(doorId: string) {

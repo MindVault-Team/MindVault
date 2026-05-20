@@ -32,3 +32,20 @@ To help us resolve the issue as quickly as possible, please include:
 * Any relevant proof-of-concept code.
 
 We will publicly acknowledge your contribution in the release notes once the patch is live (unless you prefer to remain anonymous).
+
+## UI Privacy Enforcement
+
+To ensure visual privacy and data sandboxing, the MindVault user interface enforces strict visual boundaries around sensitive assets in both the spatial canvas and layout nodes:
+
+1. **Redacted Data Isolation**:
+   - Nodes marked as "Redacted" have their titles and content completely replaced by the static string `[REDACTED]` at the application boundary.
+   - Redacted nodes are fully non-interactive. The UI disables all hover events, selection clicks, context menus, and inline editing for these items.
+
+2. **Locked Visual Waterwalls**:
+   - Locked vaults, subvaults, and nodes display desaturated locked badges and use distinct dashed borders (`border-style: dashed`) to visually isolate them from public/unlocked data.
+   - Access to details or internal nodes of a Locked vault is fully blocked until unlocked by the user.
+
+3. **Privacy Cross-Vault Connectors**:
+   - Any topological connection curves (SVG pathways) linking into or originating from a Locked or Redacted node automatically inherit the most restrictive privacy tier.
+   - These connection curves are rendered as dashed visual lines containing explicit desaturated Lock SVG indicators overlaying the path.
+

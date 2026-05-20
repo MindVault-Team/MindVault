@@ -3,6 +3,8 @@ import {
   vaultDelete,
   vaultList,
   vaultUpdate,
+  vaultGet,
+  vaultUpdatePosition,
   type Node,
   type Vault,
   type VaultCreateInput,
@@ -66,4 +68,31 @@ export function resolveVaultPath(node: Node, allVaults: Vault[]): string {
 
   const parentVault = vaultById.get(parentVaultId);
   return parentVault ? `${parentVault.name} / ${topLevelVault.name}` : topLevelVault.name;
+}
+
+export async function getVault(vaultId: string): Promise<Vault | null> {
+  return unwrapIpcResult(vaultGet(vaultId));
+}
+
+const positionDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+export function updateVaultPosition(vaultId: string, x: number, y: number): Promise<boolean> {
+  const existing = positionDebounceTimers.get(vaultId);
+  if (existing) {
+    clearTimeout(existing);
+  }
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(async () => {
+      positionDebounceTimers.delete(vaultId);
+      try {
+        const res = await unwrapIpcResult(vaultUpdatePosition(vaultId, x, y));
+        resolve(res);
+      } catch (err) {
+        console.error("Failed to update vault position:", err);
+        resolve(false);
+      }
+    }, 300);
+    positionDebounceTimers.set(vaultId, timer);
+  });
 }

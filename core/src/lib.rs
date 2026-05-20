@@ -301,6 +301,7 @@ fn vault_from_row(row: &Row<'_>) -> rusqlite::Result<Vault> {
         updated_at: row.get(10)?,
         deleted_at: row.get(11)?,
         meta: row.get(12)?,
+        ui_metadata: row.get(13)?,
     })
 }
 
@@ -364,7 +365,7 @@ fn backlink_from_row(row: &Row<'_>) -> rusqlite::Result<Backlink> {
 fn fetch_vault_by_id(conn: &Connection, vault_id: &str) -> Result<Vault, String> {
     conn.query_row(
         "SELECT id, parent_vault_id, name, icon, description, privacy_tier, priority_profile, summary_node_id,
-                sort_order, created_at, updated_at, deleted_at, meta
+                sort_order, created_at, updated_at, deleted_at, meta, ui_metadata
          FROM (
             SELECT id,
                    NULL AS parent_vault_id,
@@ -378,7 +379,8 @@ fn fetch_vault_by_id(conn: &Connection, vault_id: &str) -> Result<Vault, String>
                    created_at,
                    updated_at,
                    deleted_at,
-                   meta
+                   meta,
+                   ui_metadata
             FROM vaults
             WHERE deleted_at IS NULL
             UNION ALL
@@ -394,7 +396,8 @@ fn fetch_vault_by_id(conn: &Connection, vault_id: &str) -> Result<Vault, String>
                    created_at,
                    updated_at,
                    deleted_at,
-                   meta
+                   meta,
+                   ui_metadata
             FROM sub_vaults
             WHERE deleted_at IS NULL
          )
@@ -783,7 +786,7 @@ fn vault_list(state: tauri::State<'_, DbState>) -> IpcResponse<Vec<Vault>> {
         let mut statement = conn
             .prepare(
                 "SELECT id, parent_vault_id, name, icon, description, privacy_tier, priority_profile, summary_node_id,
-                        sort_order, created_at, updated_at, deleted_at, meta
+                        sort_order, created_at, updated_at, deleted_at, meta, ui_metadata
                  FROM (
                     SELECT id,
                            NULL AS parent_vault_id,
@@ -797,7 +800,8 @@ fn vault_list(state: tauri::State<'_, DbState>) -> IpcResponse<Vec<Vault>> {
                            created_at,
                            updated_at,
                            deleted_at,
-                           meta
+                           meta,
+                           ui_metadata
                     FROM vaults
                     WHERE deleted_at IS NULL
                     UNION ALL
@@ -813,7 +817,8 @@ fn vault_list(state: tauri::State<'_, DbState>) -> IpcResponse<Vec<Vault>> {
                            created_at,
                            updated_at,
                            deleted_at,
-                           meta
+                           meta,
+                           ui_metadata
                     FROM sub_vaults
                     WHERE deleted_at IS NULL
                  )
@@ -830,6 +835,157 @@ fn vault_list(state: tauri::State<'_, DbState>) -> IpcResponse<Vec<Vault>> {
             vaults.push(row.map_err(|err| format!("Failed decoding vault row: {err}"))?);
         }
         Ok(vaults)
+    })())
+}
+
+#[tauri::command]
+fn vault_update_position(
+    vault_id: String,
+    x: f64,
+    y: f64,
+    state: tauri::State<'_, DbState>,
+) -> IpcResponse<bool> {
+    into_ipc((|| {
+        let mut conn = open_connection(&state.db_path)?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("Failed starting vault_update_position transaction: {err}"))?;
+
+        let current_meta: String = tx
+            .query_row(
+                "SELECT ui_metadata FROM (
+                    SELECT ui_metadata FROM vaults WHERE id = ?1 AND deleted_at IS NULL
+                    UNION ALL
+                    SELECT ui_metadata FROM sub_vaults WHERE id = ?1 AND deleted_at IS NULL
+                 ) LIMIT 1;",
+                [&vault_id],
+                |row| row.get(0),
+            )
+            .map_err(|err| {
+                format!("Failed fetching current ui_metadata for vault {vault_id}: {err}")
+            })?;
+
+        let mut meta_val: serde_json::Value =
+            serde_json::from_str(&current_meta).unwrap_or_else(|_| serde_json::json!({}));
+        meta_val["position"] = serde_json::json!({ "x": x, "y": y });
+        let updated_meta = serde_json::to_string(&meta_val)
+            .map_err(|err| format!("Failed serializing updated ui_metadata: {err}"))?;
+
+        let affected_vaults = tx
+            .execute(
+                "UPDATE vaults
+                 SET ui_metadata = ?2,
+                     updated_at = datetime('now')
+                 WHERE id = ?1 AND deleted_at IS NULL;",
+                params![&vault_id, &updated_meta],
+            )
+            .map_err(|err| format!("Failed updating vaults position: {err}"))?;
+
+        let affected_sub = if affected_vaults == 0 {
+            tx.execute(
+                "UPDATE sub_vaults
+                 SET ui_metadata = ?2,
+                     updated_at = datetime('now')
+                 WHERE id = ?1 AND deleted_at IS NULL;",
+                params![&vault_id, &updated_meta],
+            )
+            .map_err(|err| format!("Failed updating sub_vaults position: {err}"))?
+        } else {
+            0
+        };
+
+        tx.commit()
+            .map_err(|err| format!("Failed committing vault_update_position transaction: {err}"))?;
+
+        Ok(affected_vaults + affected_sub > 0)
+    })())
+}
+
+#[tauri::command]
+fn vault_get(vault_id: String, state: tauri::State<'_, DbState>) -> IpcResponse<Option<Vault>> {
+    into_ipc((|| {
+        let conn = open_connection(&state.db_path)?;
+        match fetch_vault_by_id(&conn, &vault_id) {
+            Ok(v) => Ok(Some(v)),
+            Err(e) => {
+                if e.contains("QueryReturnedNoRows") || e.contains("no rows") {
+                    Ok(None)
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    })())
+}
+
+#[tauri::command]
+fn door_list_all(state: tauri::State<'_, DbState>) -> IpcResponse<Vec<Door>> {
+    into_ipc((|| {
+        let conn = open_connection(&state.db_path)?;
+        let mut statement = conn
+            .prepare(
+                "SELECT d.id, d.source_node_id, d.target_node_id, d.target_vault_id, d.label, d.status,
+                        d.orphan_reason, d.orphan_since, d.created_at, d.updated_at,
+                        tn.privacy_tier AS target_node_privacy,
+                        tv.privacy_tier AS target_vault_privacy,
+                        tsv.privacy_tier AS target_sub_vault_privacy
+                 FROM doors d
+                 LEFT JOIN nodes tn ON d.target_node_id = tn.id AND tn.deleted_at IS NULL
+                 LEFT JOIN vaults tv ON tn.vault_id = tv.id AND tv.deleted_at IS NULL
+                 LEFT JOIN sub_vaults tsv ON tn.sub_vault_id = tsv.id AND tsv.deleted_at IS NULL
+                 WHERE d.orphan_since IS NULL;"
+            )
+            .map_err(|err| format!("Failed preparing door_list_all query: {err}"))?;
+
+        let rows = statement
+            .query_map([], |row| {
+                let id: String = row.get(0)?;
+                let source_node_id: String = row.get(1)?;
+                let mut target_node_id: Option<String> = row.get(2)?;
+                let target_vault_id: Option<String> = row.get(3)?;
+                let mut label: Option<String> = row.get(4)?;
+                let status: String = row.get(5)?;
+                let orphan_reason: Option<String> = row.get(6)?;
+                let orphan_since: Option<String> = row.get(7)?;
+                let created_at: String = row.get(8)?;
+                let updated_at: String = row.get(9)?;
+
+                let target_node_privacy: Option<String> = row.get(10)?;
+                let target_vault_privacy: Option<String> = row.get(11)?;
+                let target_sub_vault_privacy: Option<String> = row.get(12)?;
+
+                if target_node_id.is_some() {
+                    let effective_privacy = privacy::get_effective_privacy(
+                        target_node_privacy.as_deref(),
+                        target_sub_vault_privacy.as_deref(),
+                        target_vault_privacy.as_deref(),
+                    );
+                    if effective_privacy == "redacted" {
+                        target_node_id = Some("redacted-node-stub".to_string());
+                        label = Some("[REDACTED]".to_string());
+                    }
+                }
+
+                Ok(Door {
+                    id,
+                    source_node_id,
+                    target_node_id,
+                    target_vault_id,
+                    label,
+                    status,
+                    orphan_reason,
+                    orphan_since,
+                    created_at,
+                    updated_at,
+                })
+            })
+            .map_err(|err| format!("Failed querying all doors: {err}"))?;
+
+        let mut doors = Vec::new();
+        for row in rows {
+            doors.push(row.map_err(|err| format!("Failed decoding door row: {err}"))?);
+        }
+        Ok(doors)
     })())
 }
 
@@ -1898,6 +2054,8 @@ pub fn run() {
             vault_list,
             vault_delete,
             vault_update,
+            vault_update_position,
+            vault_get,
             node_create,
             node_get,
             node_list,
@@ -1912,6 +2070,7 @@ pub fn run() {
             door_create,
             door_list_outgoing,
             door_list_incoming,
+            door_list_all,
             door_delete,
             door_repoint,
             auth::auth_secret_is_setup,
