@@ -5,6 +5,7 @@ import {
   vaultUpdate,
   vaultGet,
   vaultUpdatePosition,
+  vaultUpdateColorTheme,
   type Node,
   type Vault,
   type VaultCreateInput,
@@ -95,4 +96,13 @@ export function updateVaultPosition(vaultId: string, x: number, y: number): Prom
     }, 300);
     positionDebounceTimers.set(vaultId, timer);
   });
+}
+
+export async function updateVaultColorTheme(vaultId: string, colorTheme: string): Promise<boolean> {
+  try {
+    return await unwrapIpcResult(vaultUpdateColorTheme(vaultId, colorTheme));
+  } catch (err) {
+    console.error("Failed to update vault color theme:", err);
+    return false;
+  }
 }

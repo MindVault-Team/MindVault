@@ -192,11 +192,19 @@
   background-color: rgba(188, 108, 37, 0.05) !important;
 }
 
-/* Privacy styling for Locked states */
+/* Privacy styling for Locked states (Red/Pink Warning: Cryptographic Wall) */
 .spatial-locked-card {
   border-style: dashed !important;
-  border-color: #a3a09a !important;
-  background: rgba(246, 245, 242, 0.95) !important;
+  border-color: rgba(229, 62, 62, 0.45) !important;
+  background: rgba(254, 237, 238, 0.95) !important;
+  box-shadow: 0 4px 20px rgba(229, 62, 62, 0.05) !important;
+}
+
+.spatial-locked-card.active-selection {
+  border-color: rgba(229, 62, 62, 0.85) !important;
+  box-shadow:
+    0 8px 30px rgba(229, 62, 62, 0.16),
+    0 0 0 1px rgba(229, 62, 62, 0.1) !important;
 }
 
 /* Privacy styling for Redacted state nodes */
@@ -600,20 +608,6 @@
    ========================================== */
 
 /* 1. Card Domain Themes (Glassmorphic pastel matching mockup backgrounds and accents) */
-.spatial-vault-card.theme-credentials {
-  background: rgba(254, 237, 238, 0.92);
-  border: 1.5px solid rgba(229, 62, 62, 0.18);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-}
-.spatial-vault-card.theme-credentials.active-selection {
-  border-color: rgba(229, 62, 62, 0.45);
-  box-shadow: 0 8px 30px rgba(229, 62, 62, 0.12);
-}
-.theme-credentials .spatial-node-dot {
-  background-color: #e53e3e;
-}
-
 .spatial-vault-card.theme-work {
   background: rgba(235, 248, 255, 0.92);
   border: 1.5px solid rgba(49, 130, 206, 0.18);
@@ -656,20 +650,8 @@
   background-color: #38a169;
 }
 
-.spatial-vault-card.theme-personal {
-  background: rgba(254, 237, 238, 0.92);
-  border: 1.5px solid rgba(229, 62, 62, 0.18);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-}
-.spatial-vault-card.theme-personal.active-selection {
-  border-color: rgba(229, 62, 62, 0.45);
-  box-shadow: 0 8px 30px rgba(229, 62, 62, 0.12);
-}
-.theme-personal .spatial-node-dot {
-  background-color: #e53e3e;
-}
-
+.spatial-vault-card.theme-credentials,
+.spatial-vault-card.theme-personal,
 .spatial-vault-card.theme-finance,
 .spatial-vault-card.theme-default {
   background: rgba(253, 251, 247, 0.92);
@@ -677,6 +659,17 @@
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
+.spatial-vault-card.theme-credentials.active-selection,
+.spatial-vault-card.theme-personal.active-selection,
+.spatial-vault-card.theme-finance.active-selection,
+.spatial-vault-card.theme-default.active-selection {
+  border-color: #b56a37;
+  box-shadow:
+    0 8px 30px rgba(188, 108, 37, 0.12),
+    0 0 0 1px rgba(188, 108, 37, 0.1);
+}
+.theme-credentials .spatial-node-dot,
+.theme-personal .spatial-node-dot,
 .theme-finance .spatial-node-dot,
 .theme-default .spatial-node-dot {
   background-color: #b56a37;
@@ -934,4 +927,198 @@
     transform: translateX(0);
     opacity: 1;
   }
+}
+
+/* ==========================================
+   CURATED PALETTE COLOR-CODING THEMES
+   ========================================== */
+
+/* 1. Ember Orange (Default brand color) */
+.spatial-vault-card.theme-color-ember {
+  background: rgba(254, 250, 246, 0.94);
+  border: 1.5px solid rgba(220, 95, 0, 0.22);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-color-ember.active-selection {
+  border-color: hsl(24, 95%, 50%);
+  box-shadow:
+    0 8px 30px hsla(24, 95%, 50%, 0.12),
+    0 0 0 1px hsla(24, 95%, 50%, 0.1);
+}
+.theme-color-ember .spatial-node-dot {
+  background-color: hsl(24, 95%, 50%) !important;
+}
+
+/* 2. Gold Velvet */
+.spatial-vault-card.theme-color-gold {
+  background: rgba(254, 251, 243, 0.94);
+  border: 1.5px solid rgba(217, 160, 24, 0.22);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-color-gold.active-selection {
+  border-color: hsl(42, 85%, 42%);
+  box-shadow:
+    0 8px 30px hsla(42, 85%, 42%, 0.12),
+    0 0 0 1px hsla(42, 85%, 42%, 0.1);
+}
+.theme-color-gold .spatial-node-dot {
+  background-color: hsl(42, 85%, 42%) !important;
+}
+
+/* 3. Emerald Forest */
+.spatial-vault-card.theme-color-emerald {
+  background: rgba(240, 253, 244, 0.94);
+  border: 1.5px solid rgba(22, 163, 74, 0.2);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-color-emerald.active-selection {
+  border-color: hsl(142, 70%, 35%);
+  box-shadow:
+    0 8px 30px hsla(142, 70%, 35%, 0.12),
+    0 0 0 1px hsla(142, 70%, 35%, 0.1);
+}
+.theme-color-emerald .spatial-node-dot {
+  background-color: hsl(142, 70%, 35%) !important;
+}
+
+/* 4. Teal Abyss */
+.spatial-vault-card.theme-color-teal {
+  background: rgba(240, 253, 250, 0.94);
+  border: 1.5px solid rgba(13, 148, 136, 0.2);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-color-teal.active-selection {
+  border-color: hsl(174, 85%, 30%);
+  box-shadow:
+    0 8px 30px hsla(174, 85%, 30%, 0.12),
+    0 0 0 1px hsla(174, 85%, 30%, 0.1);
+}
+.theme-color-teal .spatial-node-dot {
+  background-color: hsl(174, 85%, 30%) !important;
+}
+
+/* 5. Deep Ocean */
+.spatial-vault-card.theme-color-ocean {
+  background: rgba(239, 246, 255, 0.94);
+  border: 1.5px solid rgba(37, 99, 235, 0.2);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-color-ocean.active-selection {
+  border-color: hsl(215, 80%, 46%);
+  box-shadow:
+    0 8px 30px hsla(215, 80%, 46%, 0.12),
+    0 0 0 1px hsla(215, 80%, 46%, 0.1);
+}
+.theme-color-ocean .spatial-node-dot {
+  background-color: hsl(215, 80%, 46%) !important;
+}
+
+/* 6. Amethyst Royal */
+.spatial-vault-card.theme-color-royal {
+  background: rgba(245, 243, 255, 0.94);
+  border: 1.5px solid rgba(124, 58, 237, 0.2);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-color-royal.active-selection {
+  border-color: hsl(265, 65%, 52%);
+  box-shadow:
+    0 8px 30px hsla(265, 65%, 52%, 0.12),
+    0 0 0 1px hsla(265, 65%, 52%, 0.1);
+}
+.theme-color-royal .spatial-node-dot {
+  background-color: hsl(265, 65%, 52%) !important;
+}
+
+/* 7. Slate Storm */
+.spatial-vault-card.theme-color-storm {
+  background: rgba(248, 250, 252, 0.94);
+  border: 1.5px solid rgba(71, 85, 105, 0.22);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-color-storm.active-selection {
+  border-color: hsl(220, 20%, 42%);
+  box-shadow:
+    0 8px 30px hsla(220, 20%, 42%, 0.12),
+    0 0 0 1px hsla(220, 20%, 42%, 0.1);
+}
+.theme-color-storm .spatial-node-dot {
+  background-color: hsl(220, 20%, 42%) !important;
+}
+
+/* 8. Rose Crypt */
+.spatial-vault-card.theme-color-rose {
+  background: rgba(255, 241, 242, 0.94);
+  border: 1.5px solid rgba(225, 29, 72, 0.22);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-color-rose.active-selection {
+  border-color: hsl(354, 70%, 45%);
+  box-shadow:
+    0 8px 30px hsla(354, 70%, 45%, 0.12),
+    0 0 0 1px hsla(354, 70%, 45%, 0.1);
+}
+.theme-color-rose .spatial-node-dot {
+  background-color: hsl(354, 70%, 45%) !important;
+}
+
+/* ==========================================
+   COLOR PICKER PILL INTERFACE
+   ========================================== */
+.spatial-card-color-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(253, 252, 250, 0.96);
+  border: 1px solid rgba(188, 108, 37, 0.18);
+  border-radius: 12px;
+  padding: 6px 10px;
+  margin-top: 4px;
+  margin-bottom: 2px;
+  gap: 8px;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.03);
+  animation: fadeInDown 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.spatial-color-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  position: relative;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease;
+  outline: none;
+  padding: 0;
+}
+
+.spatial-color-dot:hover {
+  transform: scale(1.25);
+  box-shadow: 0 0 0 2px rgba(188, 108, 37, 0.25);
+}
+
+.spatial-color-dot.active {
+  transform: scale(1.22);
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 2px #b56a37;
 }

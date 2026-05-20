@@ -105,6 +105,10 @@ export function vaultUpdatePosition(vaultId: string, x: number, y: number) {
   return invokeTyped<boolean>("vault_update_position", { vaultId, x, y });
 }
 
+export function vaultUpdateColorTheme(vaultId: string, colorTheme: string) {
+  return invokeTyped<boolean>("vault_update_color_theme", { vaultId, colorTheme });
+}
+
 export function vaultGet(vaultId: string) {
   return invokeTyped<Vault | null>("vault_get", { vaultId });
 }

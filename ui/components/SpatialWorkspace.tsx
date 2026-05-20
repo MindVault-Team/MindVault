@@ -5,6 +5,7 @@ import {
   deleteVault,
   updateVault,
   updateVaultPosition,
+  updateVaultColorTheme,
 } from "../services/vaults";
 import { listAllDoors } from "../services/doors";
 import { getNodes, createNode, deleteNode, updateNode } from "../services/nodes";
@@ -24,6 +25,7 @@ interface SpatialWorkspaceProps {
   onNodeCreated?: (id: string) => void;
   onNodeDeleted?: (id: string) => void;
   onNodeUpdated?: (id: string) => void;
+  isRedactedUnlocked?: boolean;
 }
 
 interface PriorityMetadata {
@@ -31,6 +33,17 @@ interface PriorityMetadata {
   pinned?: boolean;
   score?: number;
 }
+
+const CURATED_PALETTE = [
+  { id: "ember", name: "Ember Orange", hsl: "hsl(24, 95%, 50%)" },
+  { id: "gold", name: "Gold Velvet", hsl: "hsl(42, 85%, 42%)" },
+  { id: "emerald", name: "Emerald Forest", hsl: "hsl(142, 70%, 35%)" },
+  { id: "teal", name: "Teal Abyss", hsl: "hsl(174, 85%, 30%)" },
+  { id: "ocean", name: "Deep Ocean", hsl: "hsl(215, 80%, 46%)" },
+  { id: "royal", name: "Amethyst Royal", hsl: "hsl(265, 65%, 52%)" },
+  { id: "storm", name: "Slate Storm", hsl: "hsl(220, 20%, 42%)" },
+  { id: "rose", name: "Rose Crypt", hsl: "hsl(354, 70%, 45%)" },
+];
 
 // --- Curated Domain Themes & Emojis ---
 function parsePriorityJson(priority: string): PriorityMetadata {
@@ -52,7 +65,7 @@ function getVaultTheme(name: string) {
     return {
       class: "theme-credentials",
       emoji: "🔐",
-      accent: "#e53e3e",
+      accent: "#b56a37",
     };
   }
   if (
@@ -102,7 +115,7 @@ function getVaultTheme(name: string) {
     return {
       class: "theme-personal",
       emoji: "👤",
-      accent: "#e53e3e",
+      accent: "#b56a37",
     };
   }
   if (
@@ -158,6 +171,7 @@ export default function SpatialWorkspace({
   onNodeCreated,
   onNodeDeleted,
   onNodeUpdated,
+  isRedactedUnlocked = false,
 }: SpatialWorkspaceProps) {
   // --- Data States ---
   const [vaults, setVaults] = useState<Vault[]>([]);
@@ -489,7 +503,7 @@ export default function SpatialWorkspace({
     if (!query) return false;
     // Redacted node titles are redacted, but backend privacy tier handles data leakage.
     // If redacted and query doesn't match redacted string, let's skip.
-    const isRedacted = n.privacyTier === "redacted";
+    const isRedacted = n.privacyTier === "redacted" && !isRedactedUnlocked;
     const title = isRedacted ? "[redacted]" : n.title.toLowerCase();
     const summary = isRedacted ? "" : n.summary.toLowerCase();
     return title.includes(query) || summary.includes(query);
@@ -644,14 +658,19 @@ export default function SpatialWorkspace({
       // Check if target is locked or redacted
       if (door.targetNodeId) {
         const tgtNode = nodes.find((n) => n.id === door.targetNodeId);
-        if (tgtNode && (tgtNode.privacyTier === "redacted" || tgtNode.privacyTier === "locked")) {
+        if (
+          tgtNode &&
+          ((tgtNode.privacyTier === "redacted" && !isRedactedUnlocked) ||
+            tgtNode.privacyTier === "locked")
+        ) {
           targetIsLockedOrRedacted = true;
         }
       } else if (door.targetVaultId) {
         const tgtVault = vaults.find((v) => v.id === door.targetVaultId);
         if (
           tgtVault &&
-          (tgtVault.privacyTier === "redacted" || tgtVault.privacyTier === "locked")
+          ((tgtVault.privacyTier === "redacted" && !isRedactedUnlocked) ||
+            tgtVault.privacyTier === "locked")
         ) {
           targetIsLockedOrRedacted = true;
         }
@@ -730,7 +749,7 @@ export default function SpatialWorkspace({
       // Evaluate visual active indicator
       const active = selectedNodeId === srcNode.id || selectedNodeId === door.targetNodeId;
       const isLocked =
-        srcNode.privacyTier === "redacted" ||
+        (srcNode.privacyTier === "redacted" && !isRedactedUnlocked) ||
         srcNode.privacyTier === "locked" ||
         targetIsLockedOrRedacted;
 
@@ -938,7 +957,9 @@ export default function SpatialWorkspace({
           const hasQuery = query.length > 0;
           const isVMatch = isVaultMatch(vault);
           const shouldDim = hasQuery && !isVMatch;
-          const isLocked = vault.privacyTier === "locked" || vault.privacyTier === "redacted";
+          const isLocked =
+            vault.privacyTier === "locked" ||
+            (vault.privacyTier === "redacted" && !isRedactedUnlocked);
 
           // Calculate total count of items in this vault card
           const totalItemCount =
@@ -948,8 +969,23 @@ export default function SpatialWorkspace({
           // Get domain curated theme
           const theme = getVaultTheme(vault.name);
 
+          let colorTheme = "";
+          try {
+            if (vault.uiMetadata) {
+              const parsed = JSON.parse(vault.uiMetadata);
+              colorTheme = parsed.colorTheme || "";
+            }
+          } catch (e) {
+            console.error("Error parsing uiMetadata for theme:", vault.id, e);
+          }
+
           // Card css class mappings
-          let cardClasses = `spatial-vault-card ${theme.class}`;
+          let cardClasses = `spatial-vault-card`;
+          if (colorTheme) {
+            cardClasses += ` theme-color-${colorTheme}`;
+          } else {
+            cardClasses += ` ${theme.class}`;
+          }
           if (selectedVaultId === vault.id) cardClasses += " active-selection";
           if (shouldDim) cardClasses += " spatial-dimmed";
           if (hasQuery && isVMatch) cardClasses += " spatial-glow";
@@ -1025,11 +1061,31 @@ export default function SpatialWorkspace({
                 </div>
               </div>
 
+              {selectedVaultId === vault.id && !isLocked && (
+                <div className="spatial-card-color-picker" onMouseDown={(e) => e.stopPropagation()}>
+                  {CURATED_PALETTE.filter(
+                    (color) => color.id !== "rose" || vault.privacyTier === "redacted"
+                  ).map((color) => (
+                    <button
+                      key={color.id}
+                      className={`spatial-color-dot ${colorTheme === color.id ? "active" : ""}`}
+                      style={{ backgroundColor: color.hsl }}
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        await updateVaultColorTheme(vault.id, color.id);
+                        setLocalRefresh((prev) => prev + 1);
+                      }}
+                      title={color.name}
+                    />
+                  ))}
+                </div>
+              )}
+
               {/* Direct Node Rows list */}
               <ul className="spatial-node-list">
                 {directNodesList.map((node) => {
                   const nodeMatch = isNodeMatch(node);
-                  const isRedacted = node.privacyTier === "redacted";
+                  const isRedacted = node.privacyTier === "redacted" && !isRedactedUnlocked;
                   const isNSelected = selectedNodeId === node.id;
 
                   const prio = parsePriorityJson(node.priority);
@@ -1130,7 +1186,8 @@ export default function SpatialWorkspace({
               {subvaultsList.map((subvault) => {
                 const subNodes = getNodesFor(vault.id, subvault.id);
                 const subvaultLocked =
-                  subvault.privacyTier === "locked" || subvault.privacyTier === "redacted";
+                  subvault.privacyTier === "locked" ||
+                  (subvault.privacyTier === "redacted" && !isRedactedUnlocked);
 
                 return (
                   <div key={subvault.id} className="spatial-subvault-container">
@@ -1181,12 +1238,11 @@ export default function SpatialWorkspace({
                         </button>
                       </div>
                     </div>
-
                     {/* Nodes under Subvault */}
                     <ul className="spatial-node-list">
                       {subNodes.map((node) => {
                         const nodeMatch = isNodeMatch(node);
-                        const isRedacted = node.privacyTier === "redacted";
+                        const isRedacted = node.privacyTier === "redacted" && !isRedactedUnlocked;
                         const isNSelected = selectedNodeId === node.id;
 
                         const prio = parsePriorityJson(node.priority);

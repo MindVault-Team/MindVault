@@ -365,6 +365,7 @@ function App() {
                   onNodeCreated={onNodeCreated}
                   onNodeDeleted={onNodeDeleted}
                   onNodeUpdated={onNodeUpdated}
+                  isRedactedUnlocked={isRedactedUnlocked}
                 />
               ) : (
                 <ChatPanel

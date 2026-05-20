@@ -902,6 +902,69 @@ fn vault_update_position(
 }
 
 #[tauri::command]
+fn vault_update_color_theme(
+    vault_id: String,
+    color_theme: String,
+    state: tauri::State<'_, DbState>,
+) -> IpcResponse<bool> {
+    into_ipc((|| {
+        let mut conn = open_connection(&state.db_path)?;
+        let tx = conn.transaction().map_err(|err| {
+            format!("Failed starting vault_update_color_theme transaction: {err}")
+        })?;
+
+        let current_meta: String = tx
+            .query_row(
+                "SELECT ui_metadata FROM (
+                    SELECT ui_metadata FROM vaults WHERE id = ?1 AND deleted_at IS NULL
+                    UNION ALL
+                    SELECT ui_metadata FROM sub_vaults WHERE id = ?1 AND deleted_at IS NULL
+                 ) LIMIT 1;",
+                [&vault_id],
+                |row| row.get(0),
+            )
+            .map_err(|err| {
+                format!("Failed fetching current ui_metadata for vault {vault_id}: {err}")
+            })?;
+
+        let mut meta_val: serde_json::Value =
+            serde_json::from_str(&current_meta).unwrap_or_else(|_| serde_json::json!({}));
+        meta_val["colorTheme"] = serde_json::json!(color_theme);
+        let updated_meta = serde_json::to_string(&meta_val)
+            .map_err(|err| format!("Failed serializing updated ui_metadata: {err}"))?;
+
+        let affected_vaults = tx
+            .execute(
+                "UPDATE vaults
+                 SET ui_metadata = ?2,
+                     updated_at = datetime('now')
+                 WHERE id = ?1 AND deleted_at IS NULL;",
+                params![&vault_id, &updated_meta],
+            )
+            .map_err(|err| format!("Failed updating vaults color theme: {err}"))?;
+
+        let affected_sub = if affected_vaults == 0 {
+            tx.execute(
+                "UPDATE sub_vaults
+                 SET ui_metadata = ?2,
+                     updated_at = datetime('now')
+                 WHERE id = ?1 AND deleted_at IS NULL;",
+                params![&vault_id, &updated_meta],
+            )
+            .map_err(|err| format!("Failed updating sub_vaults color theme: {err}"))?
+        } else {
+            0
+        };
+
+        tx.commit().map_err(|err| {
+            format!("Failed committing vault_update_color_theme transaction: {err}")
+        })?;
+
+        Ok(affected_vaults + affected_sub > 0)
+    })())
+}
+
+#[tauri::command]
 fn vault_get(vault_id: String, state: tauri::State<'_, DbState>) -> IpcResponse<Option<Vault>> {
     into_ipc((|| {
         let conn = open_connection(&state.db_path)?;
@@ -2055,6 +2118,7 @@ pub fn run() {
             vault_delete,
             vault_update,
             vault_update_position,
+            vault_update_color_theme,
             vault_get,
             node_create,
             node_get,
