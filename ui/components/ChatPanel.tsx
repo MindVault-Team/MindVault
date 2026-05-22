@@ -7,8 +7,14 @@ import React, {
   type KeyboardEvent,
 } from "react";
 import ReactMarkdown from "react-markdown";
-import ChartBlock from "./ChartBlock";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
+import ChartBlock from "./ChartBlock";
+import MermaidBlock from "./MermaidBlock";
+import PlantUmlBlock from "./PlantUmlBlock";
+import LatexBlock from "./LatexBlock";
+import "katex/dist/katex.min.css";
 import {
   TbBrandPython,
   TbBrandJavascript,
@@ -206,6 +212,26 @@ function createMarkdownComponents(chartsEnabled: boolean) {
           return <ChartBlock language={language} code={codeString.replace(/\n$/, "")} />;
         }
 
+        if (language === "mermaid") {
+          return chartsEnabled ? (
+            <MermaidBlock code={codeString.replace(/\n$/, "")} />
+          ) : (
+            <CodeBlock language={language} code={codeString.replace(/\n$/, "")} />
+          );
+        }
+
+        if (language === "plantuml" || language === "puml") {
+          return chartsEnabled ? (
+            <PlantUmlBlock code={codeString.replace(/\n$/, "")} />
+          ) : (
+            <CodeBlock language={language} code={codeString.replace(/\n$/, "")} />
+          );
+        }
+
+        if (language === "latex" || language === "tex") {
+          return <LatexBlock code={codeString.replace(/\n$/, "")} />;
+        }
+
         return <CodeBlock language={language} code={codeString.replace(/\n$/, "")} />;
       }
 
@@ -214,7 +240,8 @@ function createMarkdownComponents(chartsEnabled: boolean) {
   };
 }
 
-const remarkPluginsStable = [remarkGfm];
+const remarkPluginsStable = [remarkGfm, remarkMath];
+const rehypePluginsStable = [rehypeKatex];
 
 // Memoized individual message bubble — prevents re-rendering existing messages
 // when unrelated parent state (e.g. input text) changes. Each bubble only
@@ -286,7 +313,11 @@ const ChatMessageBubble = React.memo(function ChatMessageBubble({
               </div>
             </div>
           ) : (
-            <ReactMarkdown remarkPlugins={remarkPluginsStable} components={markdownComponents}>
+            <ReactMarkdown
+              remarkPlugins={remarkPluginsStable}
+              rehypePlugins={rehypePluginsStable}
+              components={markdownComponents}
+            >
               {message.content}
             </ReactMarkdown>
           )}
@@ -461,14 +492,30 @@ function ChatPanel({
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
-      inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 250)}px`;
+      const scrollHeight = inputRef.current.scrollHeight;
+      const maxHeight = messages.length === 0 ? 250 : 160;
+      if (scrollHeight > maxHeight) {
+        inputRef.current.style.height = `${maxHeight}px`;
+        inputRef.current.style.overflowY = "auto";
+      } else {
+        inputRef.current.style.height = `${scrollHeight}px`;
+        inputRef.current.style.overflowY = "hidden";
+      }
     }
-  }, [input]);
+  }, [input, messages.length]);
 
   useEffect(() => {
     if (editInputRef.current) {
       editInputRef.current.style.height = "auto";
-      editInputRef.current.style.height = `${editInputRef.current.scrollHeight}px`;
+      const scrollHeight = editInputRef.current.scrollHeight;
+      const maxHeight = 180;
+      if (scrollHeight > maxHeight) {
+        editInputRef.current.style.height = `${maxHeight}px`;
+        editInputRef.current.style.overflowY = "auto";
+      } else {
+        editInputRef.current.style.height = `${scrollHeight}px`;
+        editInputRef.current.style.overflowY = "hidden";
+      }
     }
   }, [editingContent, editingMessageId]);
 
@@ -1016,73 +1063,6 @@ function ChatPanel({
                       <div className="item-desc">
                         Run both Cloud and Local models simultaneously
                       </div>
-                    </div>
-                  </button>
-                </div>
-              )}
-            </div>
-            {/* Overflow dropdown trigger */}
-            <div
-              className="zen-pill-container overflow-container"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button
-                type="button"
-                className={`compact-pill-more ${activeDropdown === "overflow" ? "active" : ""}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleDropdown("overflow");
-                }}
-                aria-label="More options"
-              >
-                ···
-              </button>
-              {activeDropdown === "overflow" && (
-                <div className="zen-dropdown overflow-dropdown">
-                  <button
-                    type="button"
-                    className="zen-dropdown-item new-chat-item"
-                    onClick={() => {
-                      setActiveDropdown(null);
-                      void handleNewChat();
-                    }}
-                  >
-                    <span className="item-icon">✨</span>
-                    <div className="item-details">
-                      <div className="item-title">New Chat</div>
-                      <div className="item-desc">Start a fresh conversation</div>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    className={`zen-dropdown-item charts-toggle-item ${chartsEnabled ? "selected" : ""}`}
-                    onClick={() => {
-                      setActiveDropdown(null);
-                      handleToggleCharts();
-                    }}
-                  >
-                    <span className="item-icon">{chartsEnabled ? "📊" : "📈"}</span>
-                    <div className="item-details">
-                      <div className="item-title">
-                        Interactive Charts: {chartsEnabled ? "ON" : "OFF"}
-                      </div>
-                      <div className="item-desc">
-                        Toggle mathematical and statistical visualizations
-                      </div>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    className="zen-dropdown-item danger-item"
-                    onClick={() => {
-                      setActiveDropdown(null);
-                      void handleClearChat();
-                    }}
-                  >
-                    <span className="item-icon">🗑️</span>
-                    <div className="item-details">
-                      <div className="item-title">Delete Chat History</div>
-                      <div className="item-desc">Permanently erase all messages</div>
                     </div>
                   </button>
                 </div>

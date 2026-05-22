@@ -121,3 +121,20 @@ export function setChartsEnabled(enabled: boolean): void {
   window.localStorage.setItem(CHARTS_ENABLED_KEY, enabled ? "true" : "false");
   window.dispatchEvent(new CustomEvent("mindvault:llm-settings-changed"));
 }
+
+const PLANTUML_SERVER_KEY = "mindvault.llm.plantuml.server";
+const DEFAULT_PLANTUML_SERVER = "https://www.plantuml.com/plantuml";
+
+export function getPlantUmlServer(): string {
+  const value = window.localStorage.getItem(PLANTUML_SERVER_KEY);
+  if (!value || !value.trim()) {
+    return DEFAULT_PLANTUML_SERVER;
+  }
+  return value.trim();
+}
+
+export function setPlantUmlServer(url: string): void {
+  const normalized = url.trim();
+  window.localStorage.setItem(PLANTUML_SERVER_KEY, normalized || DEFAULT_PLANTUML_SERVER);
+  window.dispatchEvent(new CustomEvent("mindvault:llm-settings-changed"));
+}

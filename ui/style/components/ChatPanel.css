@@ -256,11 +256,32 @@
   transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.02);
   resize: none;
-  overflow-y: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(188, 108, 37, 0.25) transparent;
   height: 52px;
   min-height: 52px;
   max-height: 250px;
   line-height: 1.5;
+}
+
+.zen-search-input::-webkit-scrollbar {
+  width: 6px;
+}
+
+.zen-search-input::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 6px 0;
+}
+
+.zen-search-input::-webkit-scrollbar-thumb {
+  background: rgba(188, 108, 37, 0.25);
+  border-radius: 10px;
+  transition: background 150ms ease;
+}
+
+.zen-search-input::-webkit-scrollbar-thumb:hover {
+  background: rgba(188, 108, 37, 0.45);
 }
 
 .zen-search-input:focus {
@@ -808,7 +829,7 @@
   font-family: inherit;
   line-height: 1.5;
   resize: none;
-  overflow-y: auto;
+  overflow-y: hidden;
   min-height: 80px;
   max-height: 180px;
   margin-bottom: 8px;
@@ -1055,10 +1076,31 @@
   line-height: 1.5;
   font-family: inherit;
   color: var(--text-black);
-  overflow-y: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(188, 108, 37, 0.25) transparent;
   height: 42px;
   min-height: 42px;
   max-height: 160px;
+}
+
+.chat-input-wrapper textarea::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chat-input-wrapper textarea::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 6px 0;
+}
+
+.chat-input-wrapper textarea::-webkit-scrollbar-thumb {
+  background: rgba(188, 108, 37, 0.25);
+  border-radius: 10px;
+  transition: background 150ms ease;
+}
+
+.chat-input-wrapper textarea::-webkit-scrollbar-thumb:hover {
+  background: rgba(188, 108, 37, 0.45);
 }
 
 .chat-input-wrapper textarea:focus {
@@ -1353,19 +1395,25 @@
   display: block;
 }
 
-/* Ensure the parent message bubble stretches to full width when a chart is present to prevent squeezed/portrait aspect ratios */
-.chat-message:has(.chart-block-wrapper) {
+/* Ensure the parent message bubble stretches to full width when a chart or diagram is present to prevent squeezed/portrait aspect ratios */
+.chat-message:has(.chart-block-wrapper),
+.chat-message:has(.mermaid-block-wrapper),
+.chat-message:has(.plantuml-block-wrapper) {
   width: 100%;
   max-width: 100%;
 }
 
-.chat-message:has(.chart-block-wrapper) .chat-bubble-container {
+.chat-message:has(.chart-block-wrapper) .chat-bubble-container,
+.chat-message:has(.mermaid-block-wrapper) .chat-bubble-container,
+.chat-message:has(.plantuml-block-wrapper) .chat-bubble-container {
   width: 100%;
   max-width: 100%;
   flex-grow: 1;
 }
 
-.chat-message:has(.chart-block-wrapper) .chat-bubble {
+.chat-message:has(.chart-block-wrapper) .chat-bubble,
+.chat-message:has(.mermaid-block-wrapper) .chat-bubble,
+.chat-message:has(.plantuml-block-wrapper) .chat-bubble {
   width: 100%;
   max-width: 100%;
 }
@@ -1721,4 +1769,413 @@
 
 .charts-modal-btn.confirm-btn:active {
   transform: translateY(0);
+}
+
+/* Premium custom Mermaid Diagram renderer */
+.mermaid-block-wrapper {
+  margin: 0.8em 0;
+  background: #ffffff;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(188, 108, 37, 0.15);
+  box-shadow: 0 4px 16px rgba(188, 108, 37, 0.04);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.chat-message-user .mermaid-block-wrapper {
+  background: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.mermaid-block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: rgba(188, 108, 37, 0.04);
+  border-bottom: 1px solid rgba(188, 108, 37, 0.08);
+  user-select: none;
+}
+
+.mermaid-block-header.error {
+  background: rgba(201, 74, 74, 0.06);
+  border-bottom: 1px solid rgba(201, 74, 74, 0.12);
+}
+
+.mermaid-block-title-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--primary-color, #b56a37);
+  font-weight: 600;
+  font-size: 0.82rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.mermaid-block-title-icon {
+  flex-shrink: 0;
+  color: var(--primary-color);
+}
+
+.mermaid-block-title {
+  font-family: inherit;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mermaid-block-header.error .mermaid-block-title {
+  color: #c94a4a;
+}
+
+.mermaid-block-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Elegant custom pill buttons for mermaid actions */
+.mermaid-action-btn-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 99px;
+  border: 1px solid rgba(188, 108, 37, 0.18);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--primary-color, #b56a37);
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.mermaid-action-btn-pill:hover {
+  background: #ffffff;
+  border-color: var(--primary-color);
+  box-shadow: 0 2px 8px rgba(188, 108, 37, 0.06);
+}
+
+.mermaid-action-btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(188, 108, 37, 0.18);
+  color: rgba(27, 26, 23, 0.65);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 120ms ease;
+  padding: 0;
+}
+
+.mermaid-action-btn-icon:hover {
+  color: var(--primary-color);
+  background: #ffffff;
+  border-color: var(--primary-color);
+}
+
+.mermaid-block-body {
+  padding: 16px;
+  background: #fdfcfa;
+  width: 100%;
+  box-sizing: border-box;
+  overflow-x: auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Ensure the SVG rendered inside matches the container height and is responsive */
+.mermaid-block-body svg {
+  max-width: 100% !important;
+  height: auto !important;
+  display: block;
+}
+
+.mermaid-block-source-container {
+  background: rgba(0, 0, 0, 0.04);
+  padding: 12px 14px;
+  overflow-x: auto;
+  border-top: none;
+}
+
+.mermaid-block-source-container pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.mermaid-block-source-container code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--text-black);
+}
+
+/* Error view styling */
+.mermaid-block-error-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.mermaid-block-error-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(201, 74, 74, 0.04);
+  border-bottom: 1px solid rgba(201, 74, 74, 0.08);
+}
+
+.mermaid-error-icon {
+  color: #c94a4a;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.mermaid-error-text {
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: #c94a4a;
+}
+
+.mermaid-block-error-code {
+  background: rgba(0, 0, 0, 0.02);
+  padding: 12px 16px;
+  overflow-x: auto;
+}
+
+.mermaid-block-error-code pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.mermaid-block-error-code code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.82rem;
+  color: #7d7a75;
+}
+
+/* Premium custom PlantUML Diagram renderer */
+.plantuml-block-wrapper {
+  margin: 0.8em 0;
+  background: #ffffff;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(188, 108, 37, 0.15);
+  box-shadow: 0 4px 16px rgba(188, 108, 37, 0.04);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.chat-message-user .plantuml-block-wrapper {
+  background: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.plantuml-block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: rgba(188, 108, 37, 0.04);
+  border-bottom: 1px solid rgba(188, 108, 37, 0.08);
+  user-select: none;
+}
+
+.plantuml-block-header.error {
+  background: rgba(201, 74, 74, 0.06);
+  border-bottom: 1px solid rgba(201, 74, 74, 0.12);
+}
+
+.plantuml-block-title-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--primary-color, #b56a37);
+  font-weight: 600;
+  font-size: 0.82rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.plantuml-block-title-icon {
+  flex-shrink: 0;
+  color: var(--primary-color);
+}
+
+.plantuml-block-title {
+  font-family: inherit;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plantuml-block-header.error .plantuml-block-title {
+  color: #c94a4a;
+}
+
+.plantuml-block-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.plantuml-action-btn-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 99px;
+  border: 1px solid rgba(188, 108, 37, 0.18);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--primary-color, #b56a37);
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.plantuml-action-btn-pill:hover {
+  background: #ffffff;
+  border-color: var(--primary-color);
+  box-shadow: 0 2px 8px rgba(188, 108, 37, 0.06);
+}
+
+.plantuml-action-btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(188, 108, 37, 0.18);
+  color: rgba(27, 26, 23, 0.65);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 120ms ease;
+  padding: 0;
+}
+
+.plantuml-action-btn-icon:hover {
+  color: var(--primary-color);
+  background: #ffffff;
+  border-color: var(--primary-color);
+}
+
+.plantuml-block-body {
+  padding: 16px;
+  background: #fdfcfa;
+  width: 100%;
+  box-sizing: border-box;
+  overflow-x: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 120px;
+}
+
+.plantuml-block-body.loading {
+  gap: 12px;
+  color: rgba(27, 26, 23, 0.5);
+  font-size: 0.82rem;
+}
+
+.plantuml-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid rgba(188, 108, 37, 0.1);
+  border-top-color: var(--primary-color, #b56a37);
+  border-radius: 50%;
+  animation: plantuml-spin 0.8s linear infinite;
+}
+
+@keyframes plantuml-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.plantuml-diagram-image {
+  max-width: 100% !important;
+  height: auto !important;
+  display: block;
+}
+
+.plantuml-block-source-container {
+  background: rgba(0, 0, 0, 0.04);
+  padding: 12px 14px;
+  overflow-x: auto;
+  border-top: none;
+}
+
+.plantuml-block-source-container pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.plantuml-block-source-container code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--text-black);
+}
+
+/* Error view styling */
+.plantuml-block-error-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.plantuml-block-error-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(201, 74, 74, 0.04);
+  border-bottom: 1px solid rgba(201, 74, 74, 0.08);
+}
+
+.plantuml-error-text {
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: #c94a4a;
+}
+
+.plantuml-block-error-code {
+  background: rgba(0, 0, 0, 0.02);
+  padding: 12px 16px;
+  overflow-x: auto;
+}
+
+.plantuml-block-error-code pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.plantuml-block-error-code code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.82rem;
+  color: #7d7a75;
 }
