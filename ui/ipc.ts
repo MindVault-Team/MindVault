@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   Backlink,
+  Changeset,
+  ChangesetItem,
   Door,
   DoorCreateInput,
   Node,
@@ -25,6 +27,8 @@ export type ChatMessage = {
 };
 export type {
   Backlink,
+  Changeset,
+  ChangesetItem,
   Door,
   DoorCreateInput,
   Node,
@@ -268,4 +272,10 @@ export function onboardingCommit(proposals: OnboardingNodeCommitInput[]) {
 
 export function saveMarkdownFile(defaultName: string, content: string) {
   return invokeTyped<boolean>("save_markdown_file", { defaultName, content });
+}
+
+export function memoryExtract(provider: string, endpoint: string, model: string) {
+  return invoke<Changeset>("memory_extract", { provider, endpoint, model })
+    .then((ok) => ({ ok }) as IpcResult<Changeset>)
+    .catch((error) => ({ err: String(error) }) as IpcResult<Changeset>);
 }

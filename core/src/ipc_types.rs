@@ -256,6 +256,43 @@ pub struct Backlink {
     pub created_at: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../ui/types/generated/")]
+pub struct Changeset {
+    pub id: String,
+    pub session_id: Option<String>,
+    pub status: String,
+    #[ts(type = "number")]
+    pub item_count: i64,
+    #[ts(type = "number")]
+    pub accepted_count: i64,
+    #[ts(type = "number")]
+    pub dismissed_count: i64,
+    pub model_used: Option<String>,
+    pub created_at: String,
+    pub reviewed_at: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../ui/types/generated/")]
+pub struct ChangesetItem {
+    pub id: String,
+    pub changeset_id: String,
+    pub item_type: String,
+    pub target_node_id: Option<String>,
+    pub proposed_data: String,
+    pub existing_data: Option<String>,
+    pub similarity: Option<f64>,
+    pub merge_with_id: Option<String>,
+    pub door_id: Option<String>,
+    pub status: String,
+    pub reviewed_at: Option<String>,
+    #[ts(type = "number")]
+    pub sort_order: i64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,6 +337,12 @@ mod tests {
         }
         if let Err(err) = OnboardingNodeCommitInput::export() {
             panic!("failed to export OnboardingNodeCommitInput: {err}");
+        }
+        if let Err(err) = Changeset::export() {
+            panic!("failed to export Changeset: {err}");
+        }
+        if let Err(err) = ChangesetItem::export() {
+            panic!("failed to export ChangesetItem: {err}");
         }
     }
 }

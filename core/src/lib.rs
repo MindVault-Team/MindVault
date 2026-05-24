@@ -18,7 +18,7 @@ mod priority;
 mod privacy;
 mod redacted;
 use ipc_types::{
-    Backlink, Door, DoorCreateInput, Node, NodeCreateInput, NodeUpdateInput,
+    Backlink, Changeset, Door, DoorCreateInput, Node, NodeCreateInput, NodeUpdateInput,
     OnboardingNodeCommitInput, OnboardingProposedNode, Tag, TagCreateInput, Vault,
     VaultCreateInput, VaultUpdateInput,
 };
@@ -76,6 +76,130 @@ fn save_markdown_file(default_name: String, content: String) -> IpcResponse<bool
         },
         None => IpcResponse::Ok { ok: false },
     }
+}
+
+static MEMORY_AGENT_LIMITER: std::sync::OnceLock<
+    governor::RateLimiter<
+        governor::state::direct::NotKeyed,
+        governor::state::InMemoryState,
+        governor::clock::DefaultClock,
+    >,
+> = std::sync::OnceLock::new();
+
+pub fn check_rate_limit(key: &str) -> Result<(), String> {
+    if key == "memory_agent" {
+        let limiter = MEMORY_AGENT_LIMITER.get_or_init(|| {
+            let quota = match governor::Quota::with_period(std::time::Duration::from_secs(10)) {
+                Some(q) => q,
+                None => {
+                    // Fall back to a standard rate limit of 1 per second in the impossible event
+                    // that with_period fails, avoiding expect/unwrap entirely for Clippy.
+                    let fallback_nonzero = unsafe { std::num::NonZeroU32::new_unchecked(1) };
+                    governor::Quota::per_second(fallback_nonzero)
+                }
+            };
+            governor::RateLimiter::direct(quota)
+        });
+
+        if limiter.check().is_err() {
+            return Err(
+                "Rate limit exceeded for memory extraction. Please wait before running it again."
+                    .to_string(),
+            );
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn memory_extract(
+    provider: String,
+    endpoint: String,
+    model: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Changeset, String> {
+    // 1. Enforce governor rate-limiting first
+    check_rate_limit("memory_agent")?;
+
+    // 2. Open connection
+    let db_path = state.db_path.clone();
+    let conn = open_connection(&db_path)?;
+
+    // 3. Load chat history
+    let chat_history = chat::get_chat_history(&conn)?;
+
+    // 4. If fewer than 3 messages, return early
+    if chat_history.len() < 3 {
+        return Err(
+            "Insufficient chat history (need at least 3 messages) to extract memory.".to_string(),
+        );
+    }
+
+    // 5. Format conversation
+    let mut conversation_text = String::new();
+    for msg in &chat_history {
+        conversation_text.push_str(&format!("{}: {}\n", msg.role, msg.content));
+    }
+    let user_content = format!("<conversation>\n{}\n</conversation>", conversation_text);
+
+    // 6. Build LLM message
+    let messages = [llm::client::LlmMessage {
+        role: "user".to_string(),
+        content: user_content,
+    }];
+
+    // 7. Resolve provider
+    let parsed_provider = match provider.trim().to_lowercase().as_str() {
+        "ollama" => llm::client::LlmProvider::Ollama,
+        "lmstudio" => llm::client::LlmProvider::LmStudio,
+        "anthropic" => llm::client::LlmProvider::Anthropic,
+        "openai" => llm::client::LlmProvider::OpenAi,
+        "google" => llm::client::LlmProvider::Google,
+        "xai" => llm::client::LlmProvider::XAi,
+        _ => return Err("Unsupported provider. Use 'ollama', 'lmstudio', 'anthropic', 'openai', 'google', or 'xai'.".to_string()),
+    };
+
+    // 8. Call UniversalClient::complete
+    let client = llm::client::UniversalClient::new(
+        parsed_provider,
+        endpoint.trim().to_string(),
+        model.trim().to_string(),
+    );
+
+    let raw = llm::client::LlmClient::complete(
+        &client,
+        memory_agent::prompt::MEMORY_EXTRACTION_SYSTEM_PROMPT,
+        &messages,
+    )
+    .await?;
+
+    // 9. Parse response
+    let candidates = memory_agent::parser::parse_candidates_json(&raw)?;
+
+    // 10. Build changeset
+    let pending_changeset =
+        memory_agent::changeset::build_changeset(&conn, &candidates, "default-session")?;
+
+    // 11. Form the final Changeset struct
+    let item_count = pending_changeset.items.len() as i64;
+    let now_unix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|err| format!("System clock before UNIX_EPOCH: {err}"))?
+        .as_secs();
+
+    let cs = Changeset {
+        id: "cs_temp".to_string(),
+        session_id: Some("default-session".to_string()),
+        status: "pending".to_string(),
+        item_count,
+        accepted_count: 0,
+        dismissed_count: 0,
+        model_used: Some(model),
+        created_at: now_unix.to_string(),
+        reviewed_at: None,
+    };
+
+    Ok(cs)
 }
 
 fn sqlite_db_path<R: tauri::Runtime>(
@@ -2646,7 +2770,8 @@ pub fn run() {
             llm_chat,
             onboarding_extract_proposals,
             onboarding_commit,
-            save_markdown_file
+            save_markdown_file,
+            memory_extract
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {

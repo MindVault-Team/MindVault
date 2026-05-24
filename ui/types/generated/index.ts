@@ -1,4 +1,6 @@
 export type { Backlink } from "./Backlink";
+export type { Changeset } from "./Changeset";
+export type { ChangesetItem } from "./ChangesetItem";
 export type { Door } from "./Door";
 export type { DoorCreateInput } from "./DoorCreateInput";
 export type { Node } from "./Node";
