@@ -1377,6 +1377,27 @@ fn vault_update(input: VaultUpdateInput, state: tauri::State<'_, DbState>) -> Ip
             parent_tier.as_deref(),
         );
         let should_encrypt = next_effective_privacy == "redacted";
+        let current_is_encrypted = tx
+            .query_row(
+                "SELECT EXISTS(
+                    SELECT 1
+                    FROM vaults
+                    WHERE id = ?1 AND deleted_at IS NULL AND encrypted_payload IS NOT NULL
+                    UNION ALL
+                    SELECT 1
+                    FROM sub_vaults
+                    WHERE id = ?1 AND deleted_at IS NULL AND encrypted_payload IS NOT NULL
+                );",
+                [&vault_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|err| format!("Failed checking redacted state for vault {vault_id}: {err}"))?
+            > 0;
+        ensure_encrypted_vault_can_be_unredacted(
+            current_is_encrypted,
+            session_key,
+            should_encrypt,
+        )?;
         let encrypted_payload = if should_encrypt {
             let key = session_key.ok_or_else(|| {
                 "Unlock redacted content with your master password before saving.".to_string()
@@ -1467,6 +1488,20 @@ fn vault_update(input: VaultUpdateInput, state: tauri::State<'_, DbState>) -> Ip
     })())
 }
 
+fn ensure_encrypted_vault_can_be_unredacted(
+    current_is_encrypted: bool,
+    session_key: Option<redacted::SessionKey>,
+    should_encrypt: bool,
+) -> Result<(), String> {
+    if current_is_encrypted && !should_encrypt && session_key.is_none() {
+        return Err(
+            "Unlock redacted content with your master password before changing the vault to a non-redacted tier."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn tag_list(state: tauri::State<'_, DbState>) -> IpcResponse<Vec<Tag>> {
     into_ipc((|| {
@@ -1489,6 +1524,63 @@ fn tag_list(state: tauri::State<'_, DbState>) -> IpcResponse<Vec<Tag>> {
         }
         Ok(tags)
     })())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ensure_encrypted_node_can_be_unredacted, ensure_encrypted_vault_can_be_unredacted,
+    };
+
+    #[test]
+    fn encrypted_vault_cannot_be_unredacted_without_session_key() {
+        let result = ensure_encrypted_vault_can_be_unredacted(true, None, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn encrypted_vault_can_stay_redacted_without_session_key() {
+        let result = ensure_encrypted_vault_can_be_unredacted(true, None, true);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn unencrypted_vault_is_not_blocked_without_session_key() {
+        let result = ensure_encrypted_vault_can_be_unredacted(false, None, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn unlocked_vault_can_be_unredacted() {
+        let session_key = Some([7_u8; 32]);
+        let result = ensure_encrypted_vault_can_be_unredacted(true, session_key, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn encrypted_node_cannot_be_unredacted_without_session_key() {
+        let result = ensure_encrypted_node_can_be_unredacted(true, None, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn encrypted_node_can_stay_redacted_without_session_key() {
+        let result = ensure_encrypted_node_can_be_unredacted(true, None, true);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn unencrypted_node_is_not_blocked_without_session_key() {
+        let result = ensure_encrypted_node_can_be_unredacted(false, None, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn unlocked_node_can_be_unredacted() {
+        let session_key = Some([9_u8; 32]);
+        let result = ensure_encrypted_node_can_be_unredacted(true, session_key, false);
+        assert!(result.is_ok());
+    }
 }
 
 #[tauri::command]
@@ -1844,6 +1936,23 @@ fn node_update(input: NodeUpdateInput, state: tauri::State<'_, DbState>) -> IpcR
             next_privacy_tier.as_deref(),
         )?;
         let should_encrypt = effective_privacy == "redacted";
+        let current_is_encrypted =
+            tx.query_row(
+                "SELECT EXISTS(
+                    SELECT 1
+                    FROM nodes
+                    WHERE id = ?1 AND deleted_at IS NULL AND encrypted_payload IS NOT NULL
+                );",
+                [&input.id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|err| {
+                format!(
+                    "Failed checking redacted state for node {}: {err}",
+                    input.id
+                )
+            })? > 0;
+        ensure_encrypted_node_can_be_unredacted(current_is_encrypted, session_key, should_encrypt)?;
         let encrypted_payload = if should_encrypt {
             let key = session_key.ok_or_else(|| {
                 "Unlock redacted content with your master password before saving.".to_string()
@@ -1930,6 +2039,20 @@ fn node_update(input: NodeUpdateInput, state: tauri::State<'_, DbState>) -> IpcR
                 .ok_or_else(|| format!("Node not found after update: {}", input.id))
         })
     })())
+}
+
+fn ensure_encrypted_node_can_be_unredacted(
+    current_is_encrypted: bool,
+    session_key: Option<redacted::SessionKey>,
+    should_encrypt: bool,
+) -> Result<(), String> {
+    if current_is_encrypted && !should_encrypt && session_key.is_none() {
+        return Err(
+            "Unlock redacted content with your master password before changing the node to a non-redacted tier."
+                .to_string(),
+        );
+    }
+    Ok(())
 }
 
 #[tauri::command]
