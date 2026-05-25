@@ -21,6 +21,7 @@ export type ChatMessage = {
   role: string;
   content: string;
   created_at: string;
+  isStreaming?: boolean;
 };
 export type {
   Backlink,
@@ -101,6 +102,18 @@ export function vaultUpdate(input: VaultUpdateInput) {
   return invokeTyped<Vault>("vault_update", { input });
 }
 
+export function vaultUpdatePosition(vaultId: string, x: number, y: number) {
+  return invokeTyped<boolean>("vault_update_position", { vaultId, x, y });
+}
+
+export function vaultUpdateColorTheme(vaultId: string, colorTheme: string) {
+  return invokeTyped<boolean>("vault_update_color_theme", { vaultId, colorTheme });
+}
+
+export function vaultGet(vaultId: string) {
+  return invokeTyped<Vault | null>("vault_get", { vaultId });
+}
+
 export function nodeCreate(input: NodeCreateInput) {
   return invokeTyped<Node>("node_create", { input });
 }
@@ -157,6 +170,10 @@ export function doorListIncoming(nodeId: string) {
   return invokeTyped<Backlink[]>("door_list_incoming", { nodeId });
 }
 
+export function doorListAll() {
+  return invokeTyped<Door[]>("door_list_all");
+}
+
 export function doorDelete(doorId: string) {
   return invokeTyped<boolean>("door_delete", { doorId });
 }
@@ -207,7 +224,8 @@ export function chatWithLlm(
   provider: string,
   endpoint: string,
   model: string,
-  userPrompt: string
+  userPrompt: string,
+  isRedactedUnlocked: boolean
 ) {
   return invoke<string>("llm_chat", {
     nodeIds,
@@ -216,6 +234,7 @@ export function chatWithLlm(
     endpoint,
     model,
     userPrompt,
+    isRedactedUnlocked,
   })
     .then((ok) => ({ ok }) as IpcResult<string>)
     .catch((error) => ({ err: String(error) }) as IpcResult<string>);

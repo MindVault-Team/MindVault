@@ -2,8 +2,8 @@
   min-height: 100vh;
   margin: 0;
   padding: 32px;
-  background: #0c0f1a;
-  color: #ff5b5b;
+  background: var(--background);
+  color: #e53e3e;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   display: flex;
   align-items: flex-start;
@@ -15,5 +15,5 @@
   font-size: 0.95rem;
   white-space: pre-wrap;
   word-break: break-word;
-  color: #ff5b5b;
+  color: #e53e3e;
 }

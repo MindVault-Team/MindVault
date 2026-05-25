@@ -1,51 +1,205 @@
 .llm-settings {
   display: grid;
   align-content: start;
-  gap: 12px;
+  gap: 16px;
+}
+
+.segmented-control {
+  display: flex;
+  background: rgba(188, 108, 37, 0.08);
+  border-radius: 12px;
+  padding: 4px;
+  gap: 4px;
+  border: 1px solid rgba(188, 108, 37, 0.1);
+}
+
+.segmented-control button {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: rgba(27, 26, 23, 0.6);
+  font-weight: 500;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.segmented-control button:hover {
+  background: rgba(255, 255, 255, 0.4);
+  color: var(--primary-color);
+}
+
+.segmented-control button.active {
+  background: white;
+  color: var(--primary-color);
+  box-shadow: 0 2px 8px rgba(188, 108, 37, 0.15);
+}
+
+.settings-section {
+  display: grid;
+  gap: 16px;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.provider-card {
+  padding: 12px;
+  border: 1px solid rgba(188, 108, 37, 0.2);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.4);
+  color: var(--text-black);
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s ease;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.provider-card:hover {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(188, 108, 37, 0.4);
+  transform: translateY(-1px);
+}
+
+.provider-card.active {
+  background: var(--primary-color);
+  color: white;
+  border-color: var(--primary-color);
+  box-shadow: 0 4px 12px rgba(188, 108, 37, 0.25);
 }
 
 .settings-field {
   display: grid;
   gap: 6px;
-  color: #c3cae2;
-  font-size: 0.82rem;
+  color: var(--text-black);
+  font-size: 0.85rem;
+  font-weight: 500;
 }
 
 .settings-field input,
-.settings-field select {
-  border: 1px solid rgba(255, 255, 255, 0.18);
+.settings-field select,
+.settings-field textarea {
+  border: 1px solid rgba(188, 108, 37, 0.2);
   border-radius: 10px;
-  background: rgba(5, 8, 14, 0.55);
-  color: #eff3ff;
-  padding: 10px;
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--text-black);
+  padding: 10px 12px;
   font-size: 0.9rem;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.settings-field input:focus,
+.settings-field select:focus,
+.settings-field textarea:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(188, 108, 37, 0.1);
+  background: white;
+}
+
+.password-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input-wrapper input {
+  width: 100%;
+  padding-right: 40px;
+}
+
+.eye-toggle {
+  position: absolute;
+  right: 12px;
+  background: transparent;
+  border: none;
+  color: rgba(27, 26, 23, 0.4);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: color 0.2s ease;
+}
+
+.eye-toggle:hover {
+  color: var(--primary-color);
 }
 
 .settings-action {
-  border: 1px solid rgba(143, 184, 255, 0.25);
+  border: 1px solid rgba(188, 108, 37, 0.25);
   border-radius: 10px;
-  background: rgba(143, 184, 255, 0.1);
-  color: #d6e5ff;
-  padding: 9px 12px;
-  font-size: 0.86rem;
+  background: rgba(188, 108, 37, 0.08);
+  color: var(--primary-color);
+  padding: 10px 16px;
+  font-size: 0.9rem;
+  font-weight: 500;
   cursor: pointer;
-  text-align: left;
+  text-align: center;
+  transition: all 0.2s ease;
 }
 
 .settings-action:hover {
-  background: rgba(143, 184, 255, 0.18);
+  background: rgba(188, 108, 37, 0.15);
+  transform: translateY(-1px);
 }
 
 .settings-action.save {
-  width: fit-content;
+  background: var(--primary-color);
+  color: white;
+  border-color: var(--primary-color);
+}
+
+.settings-action.save:hover {
+  background: #a35d1e;
+  box-shadow: 0 4px 12px rgba(188, 108, 37, 0.2);
+}
+
+.hybrid-wrapper {
+  display: grid;
+  gap: 16px;
+}
+
+.hybrid-note {
+  font-size: 0.8rem;
+  color: rgba(27, 26, 23, 0.6);
+  background: rgba(188, 108, 37, 0.05);
+  padding: 12px;
+  border-radius: 8px;
+  border-left: 3px solid var(--primary-color);
+}
+
+.hybrid-note p {
+  margin: 0;
+  line-height: 1.4;
 }
 
 .llm-settings-dev {
-  margin-top: 8px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(188, 108, 37, 0.15);
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .llm-settings-dev-title {
@@ -54,34 +208,31 @@
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #98acd8;
+  color: rgba(27, 26, 23, 0.6);
 }
 
 .llm-settings-dev-line {
   margin: 0;
   font-size: 0.82rem;
-  color: #c3cae2;
+  color: var(--text-black);
 }
 
 .llm-settings-dev-line strong {
-  color: #e8efff;
+  color: var(--primary-color);
   font-weight: 600;
 }
 
 .llm-settings-dev-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
 
 .llm-settings-dev-note {
   margin: 0;
   font-size: 0.72rem;
-  color: #7f90b8;
-}
-
-.llm-settings-dev-field {
-  margin-top: 4px;
+  color: rgba(27, 26, 23, 0.5);
+  text-align: center;
 }
 
 .llm-settings-dev-json-input {
@@ -94,13 +245,13 @@
 
 .llm-settings-dev-json-preview {
   margin: 0;
-  padding: 10px;
+  padding: 12px;
   max-height: 220px;
   overflow: auto;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
-  background: rgba(5, 8, 14, 0.65);
-  color: #c8d4f0;
+  border: 1px solid rgba(188, 108, 37, 0.15);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.03);
+  color: var(--text-black);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.72rem;
   line-height: 1.4;

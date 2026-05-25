@@ -1,23 +1,24 @@
 .active-memory-panel {
   margin: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(188, 108, 37, 0.15);
   border-radius: 10px;
-  background: rgba(8, 12, 22, 0.72);
+  background: rgba(255, 255, 255, 0.45);
   padding: 10px 12px;
   display: grid;
   gap: 8px;
+  box-shadow: 0 4px 16px rgba(188, 108, 37, 0.03);
 }
 
 .active-memory-header h3 {
   margin: 0;
   font-size: 0.88rem;
-  color: #e3ecff;
+  color: var(--primary-color);
   letter-spacing: 0.01em;
 }
 
 .active-memory-empty {
   margin: 0;
-  color: #9eb0db;
+  color: rgba(27, 26, 23, 0.6);
   font-size: 0.78rem;
 }
 
@@ -27,9 +28,9 @@
 }
 
 .active-memory-item {
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(188, 108, 37, 0.15);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.6);
   padding: 8px 10px;
   display: grid;
   gap: 6px;
@@ -44,13 +45,13 @@
 
 .active-memory-item-top strong {
   min-width: 0;
-  color: #dce7ff;
+  color: var(--text-black);
   font-size: 0.82rem;
   font-weight: 600;
 }
 
 .active-memory-door-stub {
-  color: #a8b6dc;
+  color: rgba(27, 26, 23, 0.6);
   font-size: 0.74rem;
   white-space: nowrap;
 }
@@ -63,42 +64,46 @@
 }
 
 .active-memory-rate-badge {
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(188, 108, 37, 0.2);
   border-radius: 999px;
   padding: 2px 8px;
   font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #dce7ff;
+  color: var(--text-black);
 }
 
 .active-memory-rate-badge.rate-fast {
-  border-color: rgba(252, 129, 129, 0.4);
-  background: rgba(252, 129, 129, 0.12);
+  border-color: rgba(229, 62, 62, 0.35);
+  background: rgba(229, 62, 62, 0.08);
+  color: #c53030;
 }
 
 .active-memory-rate-badge.rate-standard {
-  border-color: rgba(143, 184, 255, 0.35);
-  background: rgba(143, 184, 255, 0.12);
+  border-color: rgba(66, 153, 225, 0.35);
+  background: rgba(66, 153, 225, 0.08);
+  color: #2b6cb0;
 }
 
 .active-memory-rate-badge.rate-slow {
-  border-color: rgba(104, 211, 145, 0.4);
-  background: rgba(104, 211, 145, 0.12);
+  border-color: rgba(72, 187, 120, 0.35);
+  background: rgba(72, 187, 120, 0.08);
+  color: #2f855a;
 }
 
 .active-memory-rate-badge.rate-pinned {
-  border-color: rgba(237, 137, 54, 0.45);
-  background: rgba(237, 137, 54, 0.12);
+  border-color: rgba(237, 137, 54, 0.35);
+  background: rgba(237, 137, 54, 0.08);
+  color: #dd6b20;
 }
 
 .active-memory-usage {
-  color: #9eb0db;
+  color: rgba(27, 26, 23, 0.6);
   font-size: 0.72rem;
 }
 
 .active-memory-status {
   margin: 0;
-  color: #ffb8b8;
+  color: #e53e3e;
   font-size: 0.76rem;
 }

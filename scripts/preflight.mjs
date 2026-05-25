@@ -54,27 +54,35 @@ function run(command, { cwd } = {}) {
   });
 }
 
-function getRgCommand() {
-  // Prefer a local ripgrep binary (cross-platform) when available.
-  // Falls back to `rg` on PATH if not installed.
+function getBundledRipgrepPath() {
   try {
     const require = createRequire(import.meta.url);
     const rgPath = require("@vscode/ripgrep").rgPath;
     if (typeof rgPath === "string" && rgPath.length > 0) {
-      const quoted = rgPath.includes(" ") ? `"${rgPath}"` : rgPath;
-      return quoted;
+      return rgPath.includes(" ") ? `"${rgPath}"` : rgPath;
     }
   } catch {
-    // ignore
+    // VSCode ripgrep package is not installed or resolution failed.
   }
+  return null;
+}
+
+function getPathRipgrepCommand() {
+  // Fall back to the globally installed `rg` binary on system PATH.
   return "rg";
 }
 
-async function assertRgNoMatches({ name, cmd }) {
+function getRgCommand() {
+  // Prefer the bundled cross-platform local ripgrep binary, falling back to system PATH.
+  return getBundledRipgrepPath() ?? getPathRipgrepCommand();
+}
+
+async function assertRgNoMatches({ name, args }) {
   // ripgrep exit codes:
   // 0 = matches found
   // 1 = no matches
   // 2 = error
+  const cmd = args.join(" ");
   const code = await run(cmd);
   if (code === 0) {
     console.error(`\nBanned pattern matched: ${name}`);
@@ -87,24 +95,28 @@ async function assertRgNoMatches({ name, cmd }) {
   return code;
 }
 
+// Banned pattern regex to detect sensitive credentials printed in Rust logging statements.
+const BANNED_LOGGING_CREDENTIALS_REGEX =
+  '"(tracing|log)::(trace|debug|info|warn|error)!\\([^\\n]*(api_key|password|secret|token)\\s*="';
+
 async function runBannedPatterns() {
   const rg = getRgCommand();
   const checks = [
     {
       name: "XSS: dangerouslySetInnerHTML in ui/",
-      cmd: `${rg} "dangerouslySetInnerHTML" ui --glob "*.ts" --glob "*.tsx"`,
+      args: [rg, '"dangerouslySetInnerHTML"', "ui", "--glob", '"*.ts"', "--glob", '"*.tsx"'],
     },
     {
       name: "IPC: invoke() directly in ui/components/",
-      cmd: `${rg} "invoke\\(" ui/components`,
+      args: [rg, '"invoke\\("', "ui/components"],
     },
     {
       name: "TypeScript: explicit any in ui/",
-      cmd: `${rg} ": any\\b|as any\\b" ui --glob "*.ts" --glob "*.tsx"`,
+      args: [rg, '": any\\b|as any\\b"', "ui", "--glob", '"*.ts"', "--glob", '"*.tsx"'],
     },
     {
       name: "Rust logging: secret-ish fields in core/src/",
-      cmd: `${rg} "(tracing|log)::(trace|debug|info|warn|error)!\\([^\\n]*(api_key|password|secret|token)\\s*=" core/src`,
+      args: [rg, BANNED_LOGGING_CREDENTIALS_REGEX, "core/src"],
     },
   ];
 
@@ -116,6 +128,28 @@ async function runBannedPatterns() {
   }
   return 0;
 }
+
+const CARGO_MANIFEST_FLAGS = ["--manifest-path", "core/Cargo.toml"];
+
+const CARGO_FMT_CMD = fix
+  ? ["cargo", "fmt", ...CARGO_MANIFEST_FLAGS]
+  : ["cargo", "fmt", ...CARGO_MANIFEST_FLAGS, "--", "--check"];
+
+const CARGO_CLIPPY_CMD = [
+  "cargo",
+  "clippy",
+  ...CARGO_MANIFEST_FLAGS,
+  "--all-targets",
+  "--",
+  "-D",
+  "warnings",
+  "-D",
+  "clippy::unwrap_used",
+  "-D",
+  "clippy::expect_used",
+];
+
+const CARGO_TEST_CMD = ["cargo", "test", ...CARGO_MANIFEST_FLAGS];
 
 const steps = [
   {
@@ -130,15 +164,19 @@ const steps = [
   { name: "tsc (noEmit)", cmd: "npx tsc --noEmit" },
   {
     name: fix ? "cargo fmt" : "cargo fmt (check)",
-    cmd: fix
-      ? "cargo fmt --manifest-path core/Cargo.toml"
-      : "cargo fmt --manifest-path core/Cargo.toml -- --check",
+    cmd: CARGO_FMT_CMD.join(" "),
   },
   {
     name: "cargo clippy",
-    cmd: "cargo clippy --manifest-path core/Cargo.toml --all-targets -- -D warnings -D clippy::unwrap_used -D clippy::expect_used",
+    cmd: CARGO_CLIPPY_CMD.join(" "),
   },
-  { name: "cargo test", cmd: "cargo test --manifest-path core/Cargo.toml" },
+  { name: "cargo test", cmd: CARGO_TEST_CMD.join(" ") },
+  {
+    name: fix ? "format generated types (write)" : "format generated types (check)",
+    cmd: fix
+      ? "npx prettier --write ui/types/generated"
+      : "npx prettier --check ui/types/generated",
+  },
 ];
 
 for (const step of steps) {

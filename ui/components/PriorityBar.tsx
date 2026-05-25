@@ -1,8 +1,10 @@
 type PriorityBarProps = {
   score: number | null;
+  compact?: boolean;
+  showLabel?: boolean;
 };
 
-function PriorityBar({ score }: PriorityBarProps) {
+function PriorityBar({ score, compact = false, showLabel = true }: PriorityBarProps) {
   const value = score !== null && Number.isFinite(score) ? score : 1.0;
   const pct = Math.round(value * 100);
 
@@ -14,9 +16,12 @@ function PriorityBar({ score }: PriorityBarProps) {
   }
 
   return (
-    <div className="priority-bar" title={`Priority: ${value.toFixed(2)}`}>
+    <div
+      className={`priority-bar ${compact ? "priority-bar-compact" : ""}`}
+      title={`Priority: ${value.toFixed(2)}`}
+    >
       <div className={`priority-bar-fill ${colorClass}`} style={{ width: `${pct}%` }} />
-      <span className="priority-bar-label">{value.toFixed(2)}</span>
+      {showLabel && <span className="priority-bar-label">{value.toFixed(2)}</span>}
     </div>
   );
 }

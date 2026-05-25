@@ -3,6 +3,9 @@ import {
   vaultDelete,
   vaultList,
   vaultUpdate,
+  vaultGet,
+  vaultUpdatePosition,
+  vaultUpdateColorTheme,
   type Node,
   type Vault,
   type VaultCreateInput,
@@ -66,4 +69,36 @@ export function resolveVaultPath(node: Node, allVaults: Vault[]): string {
 
   const parentVault = vaultById.get(parentVaultId);
   return parentVault ? `${parentVault.name} / ${topLevelVault.name}` : topLevelVault.name;
+}
+
+export async function getVault(vaultId: string): Promise<Vault | null> {
+  return unwrapIpcResult(vaultGet(vaultId));
+}
+
+const positionDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+export function updateVaultPosition(vaultId: string, x: number, y: number): void {
+  const existing = positionDebounceTimers.get(vaultId);
+  if (existing) {
+    clearTimeout(existing);
+  }
+
+  const timer = setTimeout(async () => {
+    positionDebounceTimers.delete(vaultId);
+    try {
+      await unwrapIpcResult(vaultUpdatePosition(vaultId, x, y));
+    } catch (err) {
+      console.error("Failed to update vault position:", err);
+    }
+  }, 300);
+  positionDebounceTimers.set(vaultId, timer);
+}
+
+export async function updateVaultColorTheme(vaultId: string, colorTheme: string): Promise<boolean> {
+  try {
+    return await unwrapIpcResult(vaultUpdateColorTheme(vaultId, colorTheme));
+  } catch (err) {
+    console.error("Failed to update vault color theme:", err);
+    return false;
+  }
 }

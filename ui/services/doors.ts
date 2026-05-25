@@ -4,6 +4,7 @@ import {
   doorListIncoming,
   doorListOutgoing,
   doorRepoint,
+  doorListAll,
   type Backlink,
   type Door,
   type DoorCreateInput,
@@ -56,6 +57,14 @@ export async function repointDoor(
   targetNodeId: string
 ): Promise<ServiceResult<boolean>> {
   const result = await doorRepoint(doorId, targetNodeId);
+  if ("ok" in result) {
+    return { data: result.ok, error: null };
+  }
+  return { data: null, error: toAppError(result.err) };
+}
+
+export async function listAllDoors(): Promise<ServiceResult<Door[]>> {
+  const result = await doorListAll();
   if ("ok" in result) {
     return { data: result.ok, error: null };
   }

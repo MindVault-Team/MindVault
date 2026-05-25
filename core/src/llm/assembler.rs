@@ -4,7 +4,7 @@ use rusqlite::Connection;
 use serde_json::Value;
 use tiktoken_rs::CoreBPE;
 
-use crate::privacy::{generate_pointer_stub, get_effective_privacy, get_privacy_rank};
+use crate::privacy::{generate_pointer_stub, get_effective_privacy};
 
 const ATTENTION_SINK_TOKENS: usize = 50;
 const FALLBACK_CHARS_PER_TOKEN_EST: usize = 4;
@@ -59,6 +59,7 @@ fn trim_tail_with_attention_sink(text: &str, max_tokens: usize) -> String {
 pub struct AssemblerConfig {
     pub scope: String,
     pub max_tokens: usize,
+    pub is_unlocked: bool,
 }
 
 struct AssemblerNode {
@@ -178,23 +179,69 @@ pub fn build_context(
             node.sub_vault_privacy_tier.as_deref(),
             node.vault_privacy_tier.as_deref(),
         );
-        let rank = get_privacy_rank(Some(effective_tier));
 
-        let blocked = match config.scope.as_str() {
-            "cloud" => rank > 0,
-            "local" => rank > 1,
-            _ => false,
-        };
-
-        let block = if blocked {
-            generate_pointer_stub(&node.title, &node.id)
-        } else {
-            format!(
-                "<document title=\"{}\">\n{}\n\n{}\n</document>",
-                escape_xml_attr(&node.title),
-                node.summary,
-                node.detail
-            )
+        let block = match config.scope.as_str() {
+            "cloud" => {
+                match effective_tier {
+                    "open" => {
+                        format!(
+                            "<document title=\"{}\">\n{}\n\n{}\n</document>",
+                            escape_xml_attr(&node.title),
+                            node.summary,
+                            node.detail
+                        )
+                    }
+                    "locked" => generate_pointer_stub(&node.title, &node.id),
+                    _ => {
+                        // local_only and redacted are completely omitted from cloud scope
+                        continue;
+                    }
+                }
+            }
+            "local" => {
+                match effective_tier {
+                    "open" | "local_only" => {
+                        format!(
+                            "<document title=\"{}\">\n{}\n\n{}\n</document>",
+                            escape_xml_attr(&node.title),
+                            node.summary,
+                            node.detail
+                        )
+                    }
+                    "locked" => {
+                        if config.is_unlocked {
+                            format!(
+                                "<document title=\"{}\">\n{}\n\n{}\n</document>",
+                                escape_xml_attr(&node.title),
+                                node.summary,
+                                node.detail
+                            )
+                        } else {
+                            generate_pointer_stub(&node.title, &node.id)
+                        }
+                    }
+                    _ => {
+                        // redacted is completely omitted from local scope
+                        continue;
+                    }
+                }
+            }
+            _ => {
+                match effective_tier {
+                    "open" | "local_only" | "locked" => {
+                        format!(
+                            "<document title=\"{}\">\n{}\n\n{}\n</document>",
+                            escape_xml_attr(&node.title),
+                            node.summary,
+                            node.detail
+                        )
+                    }
+                    _ => {
+                        // redacted is completely omitted from local scope
+                        continue;
+                    }
+                }
+            }
         };
 
         let candidate = if assembled.is_empty() {
@@ -269,6 +316,13 @@ mod tests {
         }
 
         if let Err(err) = conn.execute(
+            "INSERT INTO sub_vaults (id, vault_id, privacy_tier, deleted_at) VALUES (?1, ?2, ?3, NULL);",
+            ["subvault_redacted", "vault_a", "redacted"],
+        ) {
+            panic!("failed inserting sub-vault for assembler test: {err}");
+        }
+
+        if let Err(err) = conn.execute(
             "INSERT INTO nodes (
                 id, vault_id, sub_vault_id, title, summary, detail, privacy_tier, priority, is_archived, deleted_at
             ) VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, 0, NULL);",
@@ -285,45 +339,133 @@ mod tests {
             panic!("failed inserting node for assembler test: {err}");
         }
 
+        if let Err(err) = conn.execute(
+            "INSERT INTO nodes (
+                id, vault_id, sub_vault_id, title, summary, detail, privacy_tier, priority, is_archived, deleted_at
+            ) VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, 0, NULL);",
+            [
+                "node_locked",
+                "vault_a",
+                "Locked Node",
+                "locked summary",
+                "locked detail",
+                "locked",
+                "{\"access_count_30active\":6}",
+            ],
+        ) {
+            panic!("failed inserting node for assembler test: {err}");
+        }
+
+        if let Err(err) = conn.execute(
+            "INSERT INTO nodes (
+                id, vault_id, sub_vault_id, title, summary, detail, privacy_tier, priority, is_archived, deleted_at
+            ) VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, 0, NULL);",
+            [
+                "node_redacted",
+                "vault_a",
+                "Redacted Node",
+                "redacted summary",
+                "redacted detail",
+                "redacted",
+                "{\"access_count_30active\":6}",
+            ],
+        ) {
+            panic!("failed inserting node for assembler test: {err}");
+        }
+
+        if let Err(err) = conn.execute(
+            "INSERT INTO nodes (
+                id, vault_id, sub_vault_id, title, summary, detail, privacy_tier, priority, is_archived, deleted_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, NULL);",
+            [
+                "node_nested_redacted",
+                "vault_a",
+                "subvault_redacted",
+                "Nested Redacted Node",
+                "nested summary",
+                "nested detail",
+                "open",
+                "{\"access_count_30active\":6}",
+            ],
+        ) {
+            panic!("failed inserting nested redacted node for assembler test: {err}");
+        }
+
         conn
     }
 
     #[test]
-    fn local_only_node_is_included_for_local_scope_and_stubbed_for_cloud() {
+    fn test_context_assembler_privacy_tiers() {
         let conn = setup_in_memory_db();
-        let node_ids = vec!["node_local_only".to_string()];
+        let node_ids = vec![
+            "node_local_only".to_string(),
+            "node_locked".to_string(),
+            "node_redacted".to_string(),
+            "node_nested_redacted".to_string(),
+        ];
 
+        // 1. Local scope (locked): local_only included; locked, redacted are stubbed.
         let local_result = match build_context(
             &conn,
             node_ids.clone(),
             AssemblerConfig {
                 scope: "local".to_string(),
                 max_tokens: 4000,
+                is_unlocked: false,
             },
         ) {
             Ok(value) => value,
             Err(err) => panic!("local scope assembler failed: {err}"),
         };
 
+        // local_only is included
         assert!(local_result.contains("<document title=\"Local Only Node\">"));
-        assert!(local_result.contains("local summary"));
         assert!(local_result.contains("local detail"));
+        // locked is stubbed since we aren't unlocked
+        assert!(local_result.contains("[LOCKED NODE STUB] Title: Locked Node"));
+        // redacted is fully omitted, even for local models
+        assert!(!local_result.contains("Redacted Node"));
+        assert!(!local_result.contains("Nested Redacted Node"));
 
+        // 1.5 Local scope (unlocked): locked is fully included.
+        let local_unlocked_result = match build_context(
+            &conn,
+            node_ids.clone(),
+            AssemblerConfig {
+                scope: "local".to_string(),
+                max_tokens: 4000,
+                is_unlocked: true,
+            },
+        ) {
+            Ok(value) => value,
+            Err(err) => panic!("local scope assembler failed: {err}"),
+        };
+        assert!(local_unlocked_result.contains("<document title=\"Locked Node\">"));
+        assert!(local_unlocked_result.contains("locked detail"));
+        assert!(!local_unlocked_result.contains("Redacted Node"));
+
+        // 2. Cloud scope: locked is stubbed; local_only and redacted are completely omitted.
         let cloud_result = match build_context(
             &conn,
             node_ids,
             AssemblerConfig {
                 scope: "cloud".to_string(),
                 max_tokens: 4000,
+                is_unlocked: false,
             },
         ) {
             Ok(value) => value,
             Err(err) => panic!("cloud scope assembler failed: {err}"),
         };
 
-        assert!(cloud_result.contains("[LOCKED NODE STUB] Title: Local Only Node"));
-        assert!(!cloud_result.contains("<document title=\"Local Only Node\">"));
-        assert!(!cloud_result.contains("local detail"));
+        // locked is stubbed
+        assert!(cloud_result.contains("[LOCKED NODE STUB] Title: Locked Node"));
+        // local_only is completely omitted
+        assert!(!cloud_result.contains("Local Only Node"));
+        // redacted is completely omitted
+        assert!(!cloud_result.contains("Redacted Node"));
+        // nested redacted inheritance is completely omitted
+        assert!(!cloud_result.contains("Nested Redacted Node"));
     }
 
     #[test]
@@ -343,6 +485,7 @@ mod tests {
             AssemblerConfig {
                 scope: "local".to_string(),
                 max_tokens: 4000,
+                is_unlocked: false,
             },
         ) {
             Ok(value) => value,
@@ -355,6 +498,7 @@ mod tests {
             AssemblerConfig {
                 scope: "local".to_string(),
                 max_tokens: 120,
+                is_unlocked: false,
             },
         ) {
             Ok(value) => value,

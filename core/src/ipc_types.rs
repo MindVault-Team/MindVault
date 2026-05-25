@@ -20,6 +20,7 @@ pub struct Vault {
     pub updated_at: String,
     pub deleted_at: Option<String>,
     pub meta: String,
+    pub ui_metadata: String,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -27,19 +28,26 @@ pub struct Vault {
 #[ts(export, export_to = "../../ui/types/generated/")]
 pub struct VaultCreateInput {
     pub name: String,
+    #[serde(default)]
     #[ts(optional)]
     pub parent_vault_id: Option<String>,
+    #[serde(default)]
     #[ts(optional)]
     pub icon: Option<String>,
+    #[serde(default)]
     #[ts(optional)]
     pub description: Option<String>,
+    #[serde(default)]
     #[ts(optional)]
     pub privacy_tier: Option<String>,
+    #[serde(default)]
     #[ts(optional)]
     pub priority_profile: Option<String>,
+    #[serde(default)]
     #[ts(optional)]
     #[ts(type = "number")]
     pub sort_order: Option<i64>,
+    #[serde(default)]
     #[ts(optional)]
     pub meta: Option<String>,
 }
@@ -55,6 +63,10 @@ pub struct VaultUpdateInput {
     pub privacy_tier: Option<String>,
     #[ts(optional)]
     pub priority_profile: Option<String>,
+    #[ts(optional)]
+    pub icon: Option<String>,
+    #[ts(optional)]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -87,22 +99,30 @@ pub struct Node {
 #[ts(export, export_to = "../../ui/types/generated/")]
 pub struct NodeCreateInput {
     pub vault_id: String,
+    #[serde(default)]
     #[ts(optional)]
     pub sub_vault_id: Option<String>,
+    #[serde(default)]
     #[ts(optional)]
     pub node_type: Option<String>,
     pub title: String,
     pub summary: String,
+    #[serde(default)]
     #[ts(optional)]
     pub detail: Option<String>,
+    #[serde(default)]
     #[ts(optional)]
     pub source: Option<String>,
+    #[serde(default)]
     #[ts(optional)]
     pub source_type: Option<String>,
+    #[serde(default)]
     #[ts(optional)]
     pub privacy_tier: Option<String>,
+    #[serde(default)]
     #[ts(optional)]
     pub priority: Option<String>,
+    #[serde(default)]
     #[ts(optional)]
     pub meta: Option<String>,
 }

@@ -1,0 +1,1199 @@
+/* Spatial Workspace main canvas layout */
+.spatial-canvas-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: #faf9f7;
+  background-image: radial-gradient(rgba(188, 108, 37, 0.08) 1.5px, transparent 1.5px);
+  background-size: 28px 28px;
+  cursor: grab;
+  user-select: none;
+}
+
+.spatial-canvas-container:active {
+  cursor: grabbing;
+}
+
+/* Transformed coordinate space */
+.spatial-canvas-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  transform-origin: 0 0;
+}
+
+/* Glassmorphic header controls */
+.spatial-header-bar {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(253, 252, 250, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(188, 108, 37, 0.15);
+  border-radius: 24px;
+  padding: 6px 16px;
+  box-shadow: 0 8px 32px rgba(27, 26, 23, 0.06);
+  z-index: 10;
+  pointer-events: auto;
+}
+
+.spatial-header-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #b56a37;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.spatial-header-lock-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: 2px;
+  border-radius: 999px;
+  border: 1px solid rgba(188, 108, 37, 0.18);
+  background: rgba(255, 255, 255, 0.75);
+  color: #7d7a75;
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+  font-size: 0.9rem;
+}
+
+.spatial-header-lock-btn:hover {
+  background: rgba(188, 108, 37, 0.08);
+  border-color: #b56a37;
+  color: #1b1a17;
+  transform: translateY(-1px);
+}
+
+.spatial-header-lock-btn.active {
+  background: rgba(181, 106, 55, 0.1);
+  border-color: rgba(181, 106, 55, 0.35);
+  color: #b56a37;
+}
+
+.spatial-header-lock-btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.spatial-header-btn {
+  background: transparent;
+  border: 1px solid rgba(188, 108, 37, 0.2);
+  color: #5c5954;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 150ms ease;
+}
+
+.spatial-header-btn:hover {
+  background: rgba(188, 108, 37, 0.08);
+  border-color: #b56a37;
+  color: #1b1a17;
+}
+
+/* Sleek bottom control bar */
+.spatial-bottom-bar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: rgba(253, 252, 250, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(188, 108, 37, 0.15);
+  border-radius: 24px;
+  padding: 6px 20px;
+  box-shadow: 0 8px 32px rgba(27, 26, 23, 0.06);
+  z-index: 10;
+  pointer-events: auto;
+  width: 90%;
+  max-width: 520px;
+}
+
+.spatial-zoom-indicator {
+  font-size: 0.8rem;
+  color: #7d7a75;
+  font-family: monospace;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.spatial-search-wrapper {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.spatial-search-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(188, 108, 37, 0.2);
+  border-radius: 16px;
+  color: #1b1a17;
+  padding: 6px 12px 6px 32px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  transition: all 180ms ease;
+}
+
+.spatial-search-input:focus {
+  outline: none;
+  background: #ffffff;
+  border-color: #b56a37;
+  box-shadow: 0 0 0 3px rgba(188, 108, 37, 0.1);
+}
+
+.spatial-search-icon {
+  position: absolute;
+  left: 10px;
+  color: #7d7a75;
+  pointer-events: none;
+}
+
+/* Vault and Subvault cards in world coordinate space */
+.spatial-vault-card {
+  position: absolute;
+  width: 280px;
+  background: rgba(253, 252, 250, 0.95);
+  border: 1.5px solid rgba(188, 108, 37, 0.25);
+  border-radius: 14px;
+  box-shadow: 0 4px 20px rgba(27, 26, 23, 0.04);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  cursor: grab;
+  transition:
+    opacity 250ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 250ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: left, top, opacity, box-shadow;
+}
+
+.spatial-vault-card:active {
+  cursor: grabbing;
+}
+
+.spatial-vault-card.active-selection {
+  border-color: #b56a37;
+  box-shadow:
+    0 8px 30px rgba(188, 108, 37, 0.12),
+    0 0 0 1px rgba(188, 108, 37, 0.1);
+}
+
+/* HSL Search Glow & Dimming states */
+.spatial-dimmed {
+  opacity: 0.22 !important;
+  pointer-events: auto;
+}
+
+.spatial-dimmed:hover {
+  opacity: 0.65 !important;
+}
+
+.spatial-glow {
+  border-color: hsl(28, 80%, 48%) !important;
+  box-shadow:
+    0 0 20px rgba(188, 108, 37, 0.35),
+    0 4px 16px rgba(188, 108, 37, 0.15) !important;
+}
+
+.spatial-glow-node {
+  box-shadow: 0 0 10px rgba(188, 108, 37, 0.3) !important;
+  border-color: rgba(188, 108, 37, 0.5) !important;
+  background-color: rgba(188, 108, 37, 0.05) !important;
+}
+
+/* Privacy styling for Redacted states (Red/Pink Warning: Cryptographic Wall) */
+.spatial-redacted-card {
+  border-style: dashed !important;
+  border-color: rgba(229, 62, 62, 0.45) !important;
+  background: rgba(254, 237, 238, 0.95) !important;
+  box-shadow: 0 4px 20px rgba(229, 62, 62, 0.05) !important;
+}
+
+.spatial-redacted-card.active-selection {
+  border-color: rgba(229, 62, 62, 0.85) !important;
+  box-shadow:
+    0 8px 30px rgba(229, 62, 62, 0.16),
+    0 0 0 1px rgba(229, 62, 62, 0.1) !important;
+}
+
+.spatial-redacted-content-locked {
+  filter: blur(2px);
+  opacity: 0.72;
+  pointer-events: none;
+  user-select: none;
+}
+
+.spatial-redacted-card-locked .spatial-card-bottom-actions {
+  filter: none;
+  opacity: 1;
+  pointer-events: auto;
+  user-select: auto;
+}
+
+/* Privacy styling for Locked states (Slate/Amber dashed theme) */
+.spatial-locked-card {
+  border-style: dashed !important;
+}
+
+.spatial-locked-card.active-selection {
+  border-style: dashed !important;
+}
+
+/* Privacy styling for Locked state nodes (Readable, slightly muted with lock) */
+.spatial-locked-node-row {
+  background: rgba(188, 108, 37, 0.02) !important;
+  border: 1px solid rgba(188, 108, 37, 0.1) !important;
+  color: #4a4844 !important;
+  opacity: 0.95;
+}
+
+/* Privacy styling for Redacted state nodes */
+.spatial-redacted-node-row {
+  background: rgba(229, 62, 62, 0.05) !important;
+  border: 1px solid rgba(229, 62, 62, 0.25) !important;
+  color: #e53e3e !important;
+  font-weight: bold;
+  pointer-events: none !important;
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
+.spatial-redacted-label {
+  color: #e53e3e !important;
+  font-family: monospace;
+  letter-spacing: 0.05em;
+}
+
+/* Card Header */
+.spatial-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid rgba(188, 108, 37, 0.1);
+  padding-bottom: 8px;
+}
+
+.spatial-card-title-area {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.spatial-card-emoji {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.spatial-card-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #4a4742;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.spatial-card-name-input {
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-family: inherit;
+  color: #4a4742;
+  background: #ffffff;
+  border: 1px solid #b56a37;
+  border-radius: 4px;
+  padding: 2px 6px;
+  width: 100%;
+}
+
+.spatial-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.spatial-card-action-btn {
+  background: transparent;
+  border: none;
+  color: #8c8983;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 120ms ease;
+}
+
+.spatial-card-action-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #1b1a17;
+}
+
+.spatial-card-action-btn.delete-armed {
+  background: #e53e3e !important;
+  color: #ffffff !important;
+  font-size: 0.68rem;
+  width: auto;
+  padding: 0 6px;
+  font-weight: bold;
+}
+
+/* Subvault nesting structure */
+.spatial-subvault-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(188, 108, 37, 0.03);
+  border: 1px solid rgba(188, 108, 37, 0.1);
+  border-radius: 10px;
+  padding: 8px;
+  margin-top: 4px;
+}
+
+.spatial-subvault-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  font-weight: bold;
+  color: #716d23;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed rgba(188, 108, 37, 0.08);
+}
+
+.spatial-subvault-title-area {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.spatial-subvault-title-input {
+  font-size: 0.8rem;
+  font-weight: bold;
+  font-family: inherit;
+  color: #716d23;
+  background: #ffffff;
+  border: 1px solid #b56a37;
+  border-radius: 4px;
+  padding: 1px 4px;
+  width: 100%;
+}
+
+/* Node items within cards */
+.spatial-node-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.spatial-node-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #ffffff;
+  border: 1px solid #eae7e2;
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: all 120ms ease;
+  min-height: 32px;
+}
+
+.spatial-node-row:hover {
+  border-color: rgba(188, 108, 37, 0.35);
+  background: rgba(188, 108, 37, 0.02);
+}
+
+.spatial-node-row.selected-node {
+  border-color: #b56a37;
+  background: #fbf6f0;
+}
+
+.spatial-node-title-area {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.spatial-node-icon {
+  font-size: 0.82rem;
+  color: #9c9993;
+  flex-shrink: 0;
+}
+
+.spatial-node-title {
+  font-size: 0.8rem;
+  font-weight: 550;
+  color: #4a4742;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.spatial-node-title-input {
+  font-size: 0.8rem;
+  font-weight: 550;
+  font-family: inherit;
+  color: #4a4742;
+  background: #ffffff;
+  border: 1px solid #b56a37;
+  border-radius: 4px;
+  padding: 1px 4px;
+  width: 100%;
+}
+
+/* Inputs for Adding inline items */
+.spatial-add-inline-btn {
+  background: transparent;
+  border: 1px dashed rgba(188, 108, 37, 0.25);
+  color: #7d7a75;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 150ms ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.spatial-add-inline-btn:hover {
+  background: rgba(188, 108, 37, 0.04);
+  border-color: rgba(188, 108, 37, 0.45);
+  color: #1b1a17;
+}
+
+.spatial-add-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.spatial-add-inline-input {
+  flex: 1;
+  background: #ffffff;
+  border: 1px solid #b56a37;
+  border-radius: 6px;
+  color: #1b1a17;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  font-family: inherit;
+}
+
+.spatial-add-inline-input:focus {
+  outline: none;
+}
+
+.spatial-add-confirm-btn {
+  background: #b56a37;
+  border: none;
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.spatial-add-cancel-btn {
+  background: #eae7e2;
+  border: none;
+  color: #5c5954;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* Background connections layer */
+.spatial-svg-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+  overflow: visible !important;
+}
+
+.spatial-connection-line {
+  fill: none;
+  stroke: rgba(188, 108, 37, 0.35);
+  stroke-width: 2px;
+  transition:
+    stroke 200ms ease,
+    stroke-width 200ms ease;
+}
+
+.spatial-connection-line.connection-active {
+  stroke: #b56a37;
+  stroke-width: 3px;
+}
+
+.spatial-connection-line.connection-locked {
+  stroke: #a3a09a !important;
+  stroke-width: 2px;
+  stroke-dasharray: 6 4;
+  animation: svgDashMove 25s linear infinite;
+}
+
+/* Animated moving dashes */
+@keyframes svgDashMove {
+  to {
+    stroke-dashoffset: -200;
+  }
+}
+
+.spatial-connection-badge {
+  pointer-events: auto;
+  cursor: pointer;
+  opacity: 0.9;
+  transition: opacity 150ms ease;
+}
+
+.spatial-connection-badge:hover {
+  opacity: 1;
+}
+
+.spatial-badge-bg {
+  fill: rgba(253, 252, 250, 0.95);
+  stroke: rgba(188, 108, 37, 0.35);
+  stroke-width: 1px;
+  rx: 10;
+  ry: 10;
+}
+
+.spatial-connection-badge:hover .spatial-badge-bg {
+  stroke: #b56a37;
+  fill: #ffffff;
+}
+
+.spatial-badge-text {
+  font-family: monospace;
+  font-size: 9px;
+  fill: #7d7a75;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.spatial-badge-text-locked {
+  fill: #a3a09a;
+}
+
+/* Sleek floating segment view mode toggle in canvas */
+.canvas-view-toggle-pill {
+  position: absolute;
+  top: 16px;
+  right: 68px;
+  z-index: 45;
+  display: flex;
+  background: rgba(253, 252, 250, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(188, 108, 37, 0.18);
+  border-radius: 20px;
+  padding: 3px;
+  box-shadow: 0 4px 16px rgba(188, 108, 37, 0.05);
+  pointer-events: auto;
+}
+
+.canvas-view-toggle-btn {
+  background: transparent;
+  border: none;
+  color: #7d7a75;
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 17px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 180ms ease;
+}
+
+.canvas-view-toggle-btn:hover:not(.active) {
+  color: #1b1a17;
+  background: rgba(188, 108, 37, 0.05);
+}
+
+.canvas-view-toggle-btn.active {
+  background: #b56a37;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(188, 108, 37, 0.2);
+}
+
+/* ==========================================
+   PREMIUM THEMES & OVERLAYS (MATCHING MOCKUP)
+   ========================================== */
+
+/* 1. Card Domain Themes (Glassmorphic pastel matching mockup backgrounds and accents) */
+.spatial-vault-card.theme-work {
+  background: rgba(235, 248, 255, 0.92);
+  border: 1.5px solid rgba(49, 130, 206, 0.18);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-work.active-selection {
+  border-color: rgba(49, 130, 206, 0.45);
+  box-shadow: 0 8px 30px rgba(49, 130, 206, 0.12);
+}
+.theme-work .spatial-node-dot {
+  background-color: #3182ce;
+}
+
+.spatial-vault-card.theme-education {
+  background: rgba(244, 240, 253, 0.92);
+  border: 1.5px solid rgba(128, 90, 213, 0.18);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-education.active-selection {
+  border-color: rgba(128, 90, 213, 0.45);
+  box-shadow: 0 8px 30px rgba(128, 90, 213, 0.12);
+}
+.theme-education .spatial-node-dot {
+  background-color: #805ad5;
+}
+
+.spatial-vault-card.theme-coding {
+  background: rgba(230, 246, 235, 0.92);
+  border: 1.5px solid rgba(56, 161, 105, 0.18);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-coding.active-selection {
+  border-color: rgba(56, 161, 105, 0.45);
+  box-shadow: 0 8px 30px rgba(56, 161, 105, 0.12);
+}
+.theme-coding .spatial-node-dot {
+  background-color: #38a169;
+}
+
+.spatial-vault-card.theme-credentials,
+.spatial-vault-card.theme-personal,
+.spatial-vault-card.theme-finance,
+.spatial-vault-card.theme-default {
+  background: rgba(253, 251, 247, 0.92);
+  border: 1.5px solid rgba(188, 108, 37, 0.18);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-credentials.active-selection,
+.spatial-vault-card.theme-personal.active-selection,
+.spatial-vault-card.theme-finance.active-selection,
+.spatial-vault-card.theme-default.active-selection {
+  border-color: #b56a37;
+  box-shadow:
+    0 8px 30px rgba(188, 108, 37, 0.12),
+    0 0 0 1px rgba(188, 108, 37, 0.1);
+}
+.theme-credentials .spatial-node-dot,
+.theme-personal .spatial-node-dot,
+.theme-finance .spatial-node-dot,
+.theme-default .spatial-node-dot {
+  background-color: #b56a37;
+}
+
+/* 2. Clean Minimal Node Rows & Hover Action Fades */
+.spatial-node-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.spatial-node-right-area {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  margin-right: 8px;
+  font-size: 0.72rem;
+  color: #7d7a75;
+  font-weight: 600;
+}
+
+.spatial-node-row .spatial-card-actions {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+
+.spatial-node-row:hover .spatial-card-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 4. Card Header Count & Locked Badges and Bottom Actions Layout */
+.spatial-card-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  margin-right: 6px;
+}
+
+.spatial-card-lock-badge {
+  font-size: 0.65rem;
+  color: #c53030;
+  background: #fff5f5;
+  border: 1px solid rgba(229, 62, 62, 0.25);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 700;
+  text-transform: lowercase;
+}
+
+.spatial-card-count-badge {
+  font-size: 0.72rem;
+  color: #7d7a75;
+  background: rgba(0, 0, 0, 0.04);
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.spatial-card-bottom-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid rgba(188, 108, 37, 0.06);
+  gap: 12px;
+}
+
+.spatial-card-open-vault {
+  font-size: 0.72rem;
+  color: #7d7a75;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 120ms ease;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.spatial-card-open-vault:hover {
+  color: #1b1a17;
+}
+
+/* 5. Exquisite Floating Pill Footer Controls */
+.spatial-bottom-bar-pill {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  background: rgba(253, 252, 250, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1.5px solid rgba(188, 108, 37, 0.15);
+  border-radius: 30px;
+  padding: 6px 16px 6px 20px;
+  box-shadow: 0 10px 35px rgba(27, 26, 23, 0.08);
+  z-index: 10;
+  pointer-events: auto;
+  width: 90%;
+  max-width: 620px;
+  height: 48px;
+}
+
+.spatial-pill-search-icon {
+  font-size: 1.1rem;
+  color: #7d7a75;
+  margin-right: 10px;
+  flex-shrink: 0;
+}
+
+.spatial-pill-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #1b1a17;
+  font-size: 0.9rem;
+  font-family: inherit;
+  min-width: 0;
+}
+.spatial-pill-search-input:focus {
+  outline: none;
+}
+
+.spatial-pill-divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(188, 108, 37, 0.15);
+  margin: 0 12px;
+  flex-shrink: 0;
+}
+
+.spatial-pill-create-btn {
+  background: transparent;
+  border: 1px solid rgba(188, 108, 37, 0.2);
+  color: #5c5954;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 999px;
+  transition: all 120ms ease;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.spatial-pill-create-btn:hover {
+  color: #1b1a17;
+  background: rgba(188, 108, 37, 0.08);
+  border-color: #b56a37;
+}
+
+.spatial-pill-reset-btn {
+  background: transparent;
+  border: none;
+  color: #7d7a75;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 120ms ease;
+  flex-shrink: 0;
+}
+.spatial-pill-reset-btn:hover {
+  color: #1b1a17;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.spatial-pill-zoom {
+  font-size: 0.88rem;
+  color: #7d7a75;
+  font-weight: 600;
+  width: 45px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* Glassmorphic Sliding Error Toast */
+.spatial-error-toast {
+  position: absolute;
+  bottom: 84px;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(254, 237, 238, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1.5px solid rgba(229, 62, 62, 0.25);
+  border-radius: 16px;
+  padding: 10px 16px;
+  box-shadow: 0 8px 30px rgba(229, 62, 62, 0.1);
+  z-index: 1002;
+  animation: slideInRight 350ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  max-width: 320px;
+  pointer-events: auto;
+}
+
+.spatial-error-toast-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.spatial-error-toast-text {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #c53030;
+  line-height: 1.3;
+}
+
+.spatial-error-toast-close {
+  background: transparent;
+  border: none;
+  color: #e53e3e;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 120ms ease;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.spatial-error-toast-close:hover {
+  opacity: 0.7;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* ==========================================
+   CURATED PALETTE COLOR-CODING THEMES
+   ========================================== */
+
+/* 1. Ember Orange (Default brand color) */
+.spatial-vault-card.theme-color-ember {
+  background: rgba(254, 250, 246, 0.94);
+  border: 1.5px solid rgba(220, 95, 0, 0.22);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-color-ember.active-selection {
+  border-color: hsl(24, 95%, 50%);
+  box-shadow:
+    0 8px 30px hsla(24, 95%, 50%, 0.12),
+    0 0 0 1px hsla(24, 95%, 50%, 0.1);
+}
+.theme-color-ember .spatial-node-dot {
+  background-color: hsl(24, 95%, 50%) !important;
+}
+
+/* 2. Gold Velvet */
+.spatial-vault-card.theme-color-gold {
+  background: rgba(254, 251, 243, 0.94);
+  border: 1.5px solid rgba(217, 160, 24, 0.22);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-color-gold.active-selection {
+  border-color: hsl(42, 85%, 42%);
+  box-shadow:
+    0 8px 30px hsla(42, 85%, 42%, 0.12),
+    0 0 0 1px hsla(42, 85%, 42%, 0.1);
+}
+.theme-color-gold .spatial-node-dot {
+  background-color: hsl(42, 85%, 42%) !important;
+}
+
+/* 3. Emerald Forest */
+.spatial-vault-card.theme-color-emerald {
+  background: rgba(240, 253, 244, 0.94);
+  border: 1.5px solid rgba(22, 163, 74, 0.2);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-color-emerald.active-selection {
+  border-color: hsl(142, 70%, 35%);
+  box-shadow:
+    0 8px 30px hsla(142, 70%, 35%, 0.12),
+    0 0 0 1px hsla(142, 70%, 35%, 0.1);
+}
+.theme-color-emerald .spatial-node-dot {
+  background-color: hsl(142, 70%, 35%) !important;
+}
+
+/* 4. Teal Abyss */
+.spatial-vault-card.theme-color-teal {
+  background: rgba(240, 253, 250, 0.94);
+  border: 1.5px solid rgba(13, 148, 136, 0.2);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-color-teal.active-selection {
+  border-color: hsl(174, 85%, 30%);
+  box-shadow:
+    0 8px 30px hsla(174, 85%, 30%, 0.12),
+    0 0 0 1px hsla(174, 85%, 30%, 0.1);
+}
+.theme-color-teal .spatial-node-dot {
+  background-color: hsl(174, 85%, 30%) !important;
+}
+
+/* 5. Deep Ocean */
+.spatial-vault-card.theme-color-ocean {
+  background: rgba(239, 246, 255, 0.94);
+  border: 1.5px solid rgba(37, 99, 235, 0.2);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-color-ocean.active-selection {
+  border-color: hsl(215, 80%, 46%);
+  box-shadow:
+    0 8px 30px hsla(215, 80%, 46%, 0.12),
+    0 0 0 1px hsla(215, 80%, 46%, 0.1);
+}
+.theme-color-ocean .spatial-node-dot {
+  background-color: hsl(215, 80%, 46%) !important;
+}
+
+/* 6. Amethyst Royal */
+.spatial-vault-card.theme-color-royal {
+  background: rgba(245, 243, 255, 0.94);
+  border: 1.5px solid rgba(124, 58, 237, 0.2);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-color-royal.active-selection {
+  border-color: hsl(265, 65%, 52%);
+  box-shadow:
+    0 8px 30px hsla(265, 65%, 52%, 0.12),
+    0 0 0 1px hsla(265, 65%, 52%, 0.1);
+}
+.theme-color-royal .spatial-node-dot {
+  background-color: hsl(265, 65%, 52%) !important;
+}
+
+/* 7. Slate Storm */
+.spatial-vault-card.theme-color-storm {
+  background: rgba(248, 250, 252, 0.94);
+  border: 1.5px solid rgba(71, 85, 105, 0.22);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-color-storm.active-selection {
+  border-color: hsl(220, 20%, 42%);
+  box-shadow:
+    0 8px 30px hsla(220, 20%, 42%, 0.12),
+    0 0 0 1px hsla(220, 20%, 42%, 0.1);
+}
+.theme-color-storm .spatial-node-dot {
+  background-color: hsl(220, 20%, 42%) !important;
+}
+
+/* 8. Rose Crypt */
+.spatial-vault-card.theme-color-rose {
+  background: rgba(255, 241, 242, 0.94);
+  border: 1.5px solid rgba(225, 29, 72, 0.22);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.spatial-vault-card.theme-color-rose.active-selection {
+  border-color: hsl(354, 70%, 45%);
+  box-shadow:
+    0 8px 30px hsla(354, 70%, 45%, 0.12),
+    0 0 0 1px hsla(354, 70%, 45%, 0.1);
+}
+.theme-color-rose .spatial-node-dot {
+  background-color: hsl(354, 70%, 45%) !important;
+}
+
+/* ==========================================
+   COLOR PICKER PILL INTERFACE
+   ========================================== */
+.spatial-card-color-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(253, 252, 250, 0.96);
+  border: 1px solid rgba(188, 108, 37, 0.18);
+  border-radius: 12px;
+  padding: 6px 10px;
+  margin-top: 4px;
+  margin-bottom: 2px;
+  gap: 8px;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.03);
+  animation: fadeInDown 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Final privacy override so locked/redacted cards always stay dashed,
+   even after theme/color classes apply their own border shorthand. */
+.spatial-vault-card.spatial-redacted-card,
+.spatial-vault-card.spatial-locked-card {
+  border-style: dashed !important;
+  border-width: 1.5px !important;
+}
+
+.spatial-vault-card.spatial-redacted-card.active-selection,
+.spatial-vault-card.spatial-locked-card.active-selection {
+  border-style: dashed !important;
+  border-width: 1.5px !important;
+}
+
+.spatial-color-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  position: relative;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease;
+  outline: none;
+  padding: 0;
+}
+
+.spatial-color-dot:hover {
+  transform: scale(1.25);
+  box-shadow: 0 0 0 2px rgba(188, 108, 37, 0.25);
+}
+
+.spatial-color-dot.active {
+  transform: scale(1.22);
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 2px #b56a37;
+}

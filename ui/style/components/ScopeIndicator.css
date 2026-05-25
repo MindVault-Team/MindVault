@@ -1,18 +1,19 @@
 .scope-indicator {
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(188, 108, 37, 0.15);
   border-radius: 10px;
-  background: rgba(8, 12, 22, 0.72);
+  background: rgba(255, 255, 255, 0.45);
   padding: 10px 12px;
   margin: 10px 10px 0;
   display: grid;
   gap: 8px;
+  box-shadow: 0 4px 16px rgba(188, 108, 37, 0.03);
 }
 
 .scope-indicator-row {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  color: #c9d3f0;
+  color: var(--text-black);
   font-size: 0.78rem;
 }
 
@@ -29,24 +30,27 @@
   display: inline-flex;
   border-radius: 8px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(188, 108, 37, 0.2);
 }
 
 .scope-scope-btn {
   padding: 4px 12px;
   font-size: 0.72rem;
   border: none;
-  background: rgba(255, 255, 255, 0.06);
-  color: #c9d3f0;
+  background: rgba(188, 108, 37, 0.05);
+  color: var(--text-black);
   cursor: pointer;
+  transition:
+    background 150ms ease,
+    color 150ms ease;
 }
 
 .scope-scope-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(188, 108, 37, 0.12);
 }
 
 .scope-scope-btn.active {
-  background: rgba(99, 179, 237, 0.28);
+  background: var(--primary-color);
   color: #fff;
 }
 
@@ -56,19 +60,19 @@
   border-radius: 999px;
   overflow: hidden;
   border: 0;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(188, 108, 37, 0.1);
 }
 
 .scope-indicator-track::-webkit-progress-bar {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(188, 108, 37, 0.1);
 }
 
 .scope-indicator-track::-webkit-progress-value {
-  background: linear-gradient(90deg, #63b3ed, #68d391);
+  background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
 }
 
 .scope-indicator-track::-moz-progress-bar {
-  background: linear-gradient(90deg, #63b3ed, #68d391);
+  background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
 }
 
 .scope-indicator-track.danger::-webkit-progress-value {
@@ -81,6 +85,6 @@
 
 .scope-indicator-status {
   margin: 0;
-  color: #ffb8b8;
+  color: #e53e3e;
   font-size: 0.76rem;
 }

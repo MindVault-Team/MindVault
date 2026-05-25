@@ -66,7 +66,10 @@ export async function chatWithScope(
   provider: string,
   endpoint: string,
   model: string,
-  userPrompt: string
+  userPrompt: string,
+  isRedactedUnlocked: boolean
 ): Promise<string> {
-  return unwrapIpcResult(chatWithLlm(nodeIds, scope, provider, endpoint, model, userPrompt));
+  return unwrapIpcResult(
+    chatWithLlm(nodeIds, scope, provider, endpoint, model, userPrompt, isRedactedUnlocked)
+  );
 }

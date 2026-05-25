@@ -5,4 +5,6 @@ export type VaultUpdateInput = {
   name?: string;
   privacyTier?: string;
   priorityProfile?: string;
+  icon?: string;
+  description?: string;
 };

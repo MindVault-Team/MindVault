@@ -16,31 +16,23 @@ fn get_temp_db_path() -> Result<PathBuf, Box<dyn Error>> {
     Ok(dir)
 }
 
-fn apply_migration(conn: &Connection) -> Result<(), Box<dyn Error>> {
-    let migration_sql = fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("db")
-            .join("migrations")
-            .join("0001_schema_v1.sql"),
-    )?;
+fn apply_migrations(conn: &Connection) -> Result<(), Box<dyn Error>> {
+    let migrations_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("db")
+        .join("migrations");
 
-    conn.execute_batch(&migration_sql)?;
-    Ok(())
-}
+    let mut paths: Vec<PathBuf> = fs::read_dir(&migrations_dir)?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "sql"))
+        .collect();
 
-fn apply_default_vaults(conn: &Connection) -> Result<(), Box<dyn Error>> {
-    let seed_sql = fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("db")
-            .join("migrations")
-            .join("0003_onboarding_default_vaults.sql"),
-    )
-    .unwrap_or_default();
+    paths.sort();
 
-    if !seed_sql.is_empty() {
-        conn.execute_batch(&seed_sql)?;
+    for path in paths {
+        let sql = fs::read_to_string(&path)?;
+        conn.execute_batch(&sql)?;
     }
     Ok(())
 }
@@ -52,8 +44,7 @@ fn test_onboarding_commit_and_backup() -> Result<(), Box<dyn Error>> {
     conn.pragma_update(None, "foreign_keys", "ON")?;
 
     // 1. Setup Database
-    apply_migration(&conn)?;
-    apply_default_vaults(&conn)?;
+    apply_migrations(&conn)?;
 
     conn.execute(
         "UPDATE vaults SET deleted_at = datetime('now') WHERE id = 'vault_personal';",

@@ -32,3 +32,27 @@ To help us resolve the issue as quickly as possible, please include:
 * Any relevant proof-of-concept code.
 
 We will publicly acknowledge your contribution in the release notes once the patch is live (unless you prefer to remain anonymous).
+
+## UI Privacy Enforcement
+
+To ensure visual privacy and data sandboxing, the MindVault user interface enforces strict visual boundaries around sensitive assets in both the spatial canvas and list-based navigation views.
+
+1. **Redacted Data Isolation**:
+   - Nodes and vaults marked as `redacted` hide their titles, summaries, breadcrumbs, search previews, active-memory rows, and connection labels until the master password is verified.
+   - Redacted items are the most restrictive tier. The UI treats them as fully gated, omitting connectors and context previews wherever they would leak metadata before unlock.
+   - When unlocked, the UI reveals the full metadata and content again.
+
+2. **Locked Visual Waterwalls**:
+   - Locked vaults, subvaults, and nodes remain readable at the metadata level, but their protected content surfaces are gated behind master-password prompts.
+   - Locked items use muted neutral styling with dashed borders and lock badges, distinct from the stronger red/pink redacted treatment.
+   - Locked items can still appear in navigation and context views, but their protected content stays blocked until unlocked.
+
+3. **Privacy Cross-Vault Connectors**:
+   - Any topological connection curves linking into or originating from a redacted target are omitted until unlock.
+   - Locked connections can still render, but they inherit lock styling and respect the strictest effective privacy tier of the source and target chain.
+
+4. **Privacy Inheritance**:
+   - Privacy tiers cascade through nested vault hierarchies.
+   - A redacted parent vault makes its children redacted in the UI and in backend context assembly unless the unlock flow has completed.
+   - Any new UI that renders vault or node names should use the shared privacy helpers rather than reading raw fields directly.
+

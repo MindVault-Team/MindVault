@@ -1,8 +1,8 @@
 .optimize-button {
-  border: 1px solid rgba(143, 184, 255, 0.25);
+  border: 1px solid rgba(188, 108, 37, 0.25);
   border-radius: 8px;
-  background: rgba(143, 184, 255, 0.1);
-  color: #d6e5ff;
+  background: rgba(188, 108, 37, 0.08);
+  color: var(--primary-color);
   padding: 6px 12px;
   font-size: 0.8rem;
   cursor: pointer;
@@ -10,7 +10,7 @@
 }
 
 .optimize-button:hover:not(:disabled) {
-  background: rgba(143, 184, 255, 0.2);
+  background: rgba(188, 108, 37, 0.15);
 }
 
 .optimize-button:disabled {
@@ -36,19 +36,31 @@
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #7b8ab5;
+  color: rgba(27, 26, 23, 0.6);
   padding-top: 4px;
   padding-bottom: 2px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(188, 108, 37, 0.15);
 }
 
 .dashboard-row {
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(188, 108, 37, 0.15);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.65);
   padding-top: 10px;
   padding-bottom: 10px;
   overflow: hidden;
+  transition:
+    transform 150ms ease,
+    box-shadow 150ms ease,
+    border-color 150ms ease,
+    background 150ms ease;
+}
+
+.dashboard-row:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(188, 108, 37, 0.05);
+  border-color: rgba(188, 108, 37, 0.25);
+  background: rgba(255, 255, 255, 0.85);
 }
 
 .dashboard-title {
@@ -57,26 +69,75 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.85rem;
-  color: #e2e9ff;
+  color: var(--text-black);
 }
 
 .dashboard-activity {
   font-size: 0.78rem;
-  color: #9ba8c8;
+  color: rgba(27, 26, 23, 0.6);
   text-align: center;
   white-space: nowrap;
 }
 
 .dashboard-rate {
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(188, 108, 37, 0.2);
   border-radius: 8px;
-  background: rgba(5, 8, 14, 0.7);
-  color: #eff3ff;
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--text-black);
   padding: 4px 6px;
   font-size: 0.75rem;
   width: 100%;
 }
 
 .dashboard-frozen {
-  border-color: rgba(99, 179, 237, 0.3);
+  border-color: rgba(188, 108, 37, 0.35);
+}
+
+@container (max-width: 340px) {
+  .dashboard-header {
+    display: none; /* Hide headers as they no longer align with stacked cards */
+  }
+
+  .dashboard-row {
+    display: grid;
+    grid-template-columns: 1fr auto; /* Left column for title/stats, right column for actions */
+    grid-template-rows: auto auto auto;
+    gap: 8px 12px;
+    padding: 12px;
+    align-items: center;
+  }
+
+  .dashboard-title {
+    grid-column: 1;
+    grid-row: 1;
+    font-weight: 600;
+    font-size: 0.88rem;
+    max-width: 100%;
+  }
+
+  .freeze-toggle {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  /* PriorityBar element selector */
+  .dashboard-row > .priority-bar {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .dashboard-activity {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: end;
+    text-align: right;
+    font-size: 0.76rem;
+  }
+
+  .dashboard-rate {
+    grid-column: 1 / span 2;
+    grid-row: 3;
+    width: 100%;
+  }
 }

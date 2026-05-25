@@ -4,6 +4,7 @@ import { onboardingCommit, onboardingExtractProposals } from "../ipc";
 import { unwrapIpcResult } from "../services/ipcResult";
 import { getLlmModels } from "../services/nodes";
 import { listVaults } from "../services/vaults";
+import { setSetting } from "../services/settings";
 import {
   getLlmModel,
   getLlmProvider,
@@ -397,6 +398,9 @@ function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingS
     setCommitBusy(true);
     setStatusMessage(null);
     try {
+      if (answers.displayName.trim()) {
+        await setSetting("displayName", answers.displayName.trim());
+      }
       await unwrapIpcResult(onboardingCommit(payload));
       setStatusMessage({ text: "Onboarding committed. Opening MindVault…", kind: "info" });
       await onComplete();

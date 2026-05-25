@@ -1,12 +1,12 @@
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-    Argon2,
+    Algorithm, Argon2, Params, Version,
 };
 use rand_core::OsRng;
 use rusqlite::params;
 use std::fmt;
 
-use crate::{into_ipc, open_connection, DbState, IpcResponse};
+use crate::{into_ipc, open_connection, redacted, DbState, IpcResponse};
 
 const MASTER_SECRET_HASH_KEY: &str = "auth_master_secret_hash";
 const LEGACY_MASTER_PASSWORD_KEY: &str = "master_password_hash";
@@ -26,7 +26,9 @@ impl fmt::Display for AppError {
 
 fn hash_password(password: &str) -> Result<String, AppError> {
     let salt = SaltString::generate(&mut OsRng);
-    let argon2 = Argon2::default();
+    let params = Params::new(19_456, 2, 1, Some(32))
+        .map_err(|err| AppError::Hashing(format!("Invalid Argon2 params: {err}")))?;
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
     argon2
         .hash_password(password.as_bytes(), &salt)
         .map(|hash| hash.to_string())
@@ -39,7 +41,12 @@ fn verify_password_hash(hash: &str, password: &str) -> bool {
         Err(_) => return false,
     };
 
-    Argon2::default()
+    let params = match Params::new(19_456, 2, 1, Some(32)) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+
+    Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
         .verify_password(password.as_bytes(), &parsed_hash)
         .is_ok()
 }
@@ -75,12 +82,20 @@ pub fn auth_secret_is_setup(state: tauri::State<'_, DbState>) -> IpcResponse<boo
 #[tauri::command]
 pub fn auth_secret_set(passphrase: String, state: tauri::State<'_, DbState>) -> IpcResponse<bool> {
     into_ipc((|| {
-        let phc_hash = hash_password(&passphrase).map_err(|err| err.to_string())?;
+        let conn = open_connection(&state.db_path)?;
 
+        if fetch_master_hash(&conn)?.is_some() {
+            return Err(
+                "Master password is already set. Cannot reset without migrating data.".to_string(),
+            );
+        }
+
+        let phc_hash = hash_password(&passphrase).map_err(|err| err.to_string())?;
         let stored_value = serde_json::to_string(&phc_hash)
             .map_err(|err| format!("Failed serializing master secret hash: {err}"))?;
+        let data_salt = redacted::ensure_data_salt(&conn)?;
+        let session_key = redacted::derive_session_key(&passphrase, &data_salt)?;
 
-        let conn = open_connection(&state.db_path)?;
         conn.execute(
             "INSERT INTO settings (key, value, scope, updated_at)
              VALUES (?1, ?2, 'global', datetime('now'))
@@ -96,6 +111,9 @@ pub fn auth_secret_set(passphrase: String, state: tauri::State<'_, DbState>) -> 
             params![LEGACY_MASTER_PASSWORD_KEY],
         )
         .map_err(|err| format!("Failed cleaning up legacy secret hash key: {err}"))?;
+
+        redacted::set_session_key(&state, session_key);
+        redacted::migrate_legacy_redacted_records(&conn, &session_key)?;
 
         Ok(true)
     })())
@@ -116,7 +134,16 @@ pub fn auth_secret_verify(
         let phc_hash: String = serde_json::from_str(&stored_value)
             .map_err(|err| format!("Failed parsing stored master secret hash: {err}"))?;
 
-        Ok(verify_password_hash(&phc_hash, &passphrase))
+        if !verify_password_hash(&phc_hash, &passphrase) {
+            return Ok(false);
+        }
+
+        let data_salt = redacted::ensure_data_salt(&conn)?;
+        let session_key = redacted::derive_session_key(&passphrase, &data_salt)?;
+        redacted::set_session_key(&state, session_key);
+        redacted::migrate_legacy_redacted_records(&conn, &session_key)?;
+
+        Ok(true)
     })())
 }
 

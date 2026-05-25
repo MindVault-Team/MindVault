@@ -1,3 +1,6 @@
+import { settingsGet, settingsSet } from "../ipc";
+import { unwrapIpcResult } from "../services/ipcResult";
+
 const LLM_PROVIDER_KEY = "mindvault.llm.provider";
 const OLLAMA_ENDPOINT_KEY = "mindvault.llm.ollama.endpoint";
 const LMSTUDIO_ENDPOINT_KEY = "mindvault.llm.lmstudio.endpoint";
@@ -12,13 +15,21 @@ export function getLlmProvider(): string {
     return DEFAULT_PROVIDER;
   }
   const normalized = value.trim().toLowerCase();
-  return normalized === "lmstudio" ? "lmstudio" : "ollama";
+  if (["ollama", "lmstudio", "openai", "anthropic", "google", "xai"].includes(normalized)) {
+    return normalized;
+  }
+  return DEFAULT_PROVIDER;
 }
 
-export function setLlmProvider(provider: string): void {
+export function setLlmProvider(provider: string, skipEvent = false): void {
   const normalized = provider.trim().toLowerCase();
-  const next = normalized === "lmstudio" ? "lmstudio" : "ollama";
+  const next = ["ollama", "lmstudio", "openai", "anthropic", "google", "xai"].includes(normalized)
+    ? normalized
+    : DEFAULT_PROVIDER;
   window.localStorage.setItem(LLM_PROVIDER_KEY, next);
+  if (!skipEvent) {
+    window.dispatchEvent(new CustomEvent("mindvault:llm-settings-changed"));
+  }
 }
 
 export function getOllamaEndpoint(): string {
@@ -68,4 +79,39 @@ export function getLlmModel(provider?: string): string {
 
 export function setLlmModel(provider: string, model: string): void {
   window.localStorage.setItem(`mindvault.llm.${provider}.model`, model.trim());
+  window.dispatchEvent(new CustomEvent("mindvault:llm-settings-changed"));
+}
+
+const LLM_MODE_KEY = "mindvault.llm.mode";
+
+export function getLlmMode(): "local" | "cloud" | "hybrid" {
+  const val = window.localStorage.getItem(LLM_MODE_KEY);
+  if (val === "cloud" || val === "hybrid") return val;
+  return "local";
+}
+
+export function setLlmMode(mode: "local" | "cloud" | "hybrid"): void {
+  window.localStorage.setItem(LLM_MODE_KEY, mode);
+  // Synchronize provider to matching group
+  const currentProvider = getLlmProvider();
+  if (mode === "local") {
+    if (!["ollama", "lmstudio"].includes(currentProvider)) {
+      setLlmProvider("ollama", true);
+    }
+  } else if (mode === "cloud") {
+    if (!["openai", "anthropic", "google", "xai"].includes(currentProvider)) {
+      setLlmProvider("openai", true);
+    }
+  }
+  window.dispatchEvent(new CustomEvent("mindvault:llm-settings-changed"));
+}
+
+export async function getApiKey(provider: string): Promise<string> {
+  const value = await unwrapIpcResult(settingsGet(`mindvault.llm.${provider}.apikey`));
+  return value || "";
+}
+
+export async function setApiKey(provider: string, key: string): Promise<void> {
+  await unwrapIpcResult(settingsSet(`mindvault.llm.${provider}.apikey`, key.trim()));
+  window.dispatchEvent(new CustomEvent("mindvault:llm-settings-changed"));
 }

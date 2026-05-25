@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chat::ChatMessage;
@@ -14,6 +15,7 @@ pub mod llm;
 pub mod onboarding;
 mod priority;
 mod privacy;
+mod redacted;
 use ipc_types::{
     Backlink, Door, DoorCreateInput, Node, NodeCreateInput, NodeUpdateInput,
     OnboardingNodeCommitInput, OnboardingProposedNode, Tag, TagCreateInput, Vault,
@@ -22,6 +24,7 @@ use ipc_types::{
 
 pub(crate) struct DbState {
     pub(crate) db_path: PathBuf,
+    pub(crate) redacted_session_key: Mutex<Option<redacted::SessionKey>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -235,7 +238,7 @@ fn onboarding_default_vault_spec(vault_id: &str) -> Option<OnboardingDefaultVaul
 }
 
 pub fn ensure_onboarding_vault_exists(conn: &Connection, vault_id: &str) -> Result<(), String> {
-    if fetch_vault_by_id(conn, vault_id).is_ok() {
+    if fetch_vault_by_id(conn, vault_id, None).is_ok() {
         return Ok(());
     }
     let Some((name, icon, description, privacy_tier, priority_profile, meta, sort_order)) =
@@ -256,7 +259,7 @@ pub fn ensure_onboarding_vault_exists(conn: &Connection, vault_id: &str) -> Resu
         )
         .map_err(|err| format!("Failed reviving onboarding vault '{vault_id}': {err}"))?;
     if revived > 0 {
-        return fetch_vault_by_id(conn, vault_id)
+        return fetch_vault_by_id(conn, vault_id, None)
             .map(|_| ())
             .map_err(|err| {
                 format!("Failed fetching revived onboarding vault '{vault_id}': {err}")
@@ -279,15 +282,33 @@ pub fn ensure_onboarding_vault_exists(conn: &Connection, vault_id: &str) -> Resu
     )
     .map_err(|err| format!("Failed creating missing onboarding vault '{vault_id}': {err}"))?;
 
-    fetch_vault_by_id(conn, vault_id)
+    fetch_vault_by_id(conn, vault_id, None)
         .map(|_| ())
         .map_err(|err| {
             format!("Failed verifying onboarding vault '{vault_id}' after ensure step: {err}")
         })
 }
 
-fn vault_from_row(row: &Row<'_>) -> rusqlite::Result<Vault> {
-    Ok(Vault {
+struct RawVaultRecord {
+    id: String,
+    parent_vault_id: Option<String>,
+    name: String,
+    icon: Option<String>,
+    description: Option<String>,
+    privacy_tier: String,
+    priority_profile: String,
+    summary_node_id: Option<String>,
+    sort_order: i64,
+    created_at: String,
+    updated_at: String,
+    deleted_at: Option<String>,
+    meta: String,
+    ui_metadata: String,
+    encrypted_payload: Option<String>,
+}
+
+fn raw_vault_from_row(row: &Row<'_>) -> rusqlite::Result<RawVaultRecord> {
+    Ok(RawVaultRecord {
         id: row.get(0)?,
         parent_vault_id: row.get(1)?,
         name: row.get(2)?,
@@ -301,11 +322,72 @@ fn vault_from_row(row: &Row<'_>) -> rusqlite::Result<Vault> {
         updated_at: row.get(10)?,
         deleted_at: row.get(11)?,
         meta: row.get(12)?,
+        ui_metadata: row.get(13)?,
+        encrypted_payload: row.get(14)?,
     })
 }
 
-fn node_from_row(row: &Row<'_>) -> rusqlite::Result<Node> {
-    Ok(Node {
+fn resolve_vault_record(
+    raw: RawVaultRecord,
+    session_key: Option<redacted::SessionKey>,
+) -> Result<Vault, String> {
+    let mut vault = Vault {
+        id: raw.id,
+        parent_vault_id: raw.parent_vault_id,
+        name: raw.name,
+        icon: raw.icon,
+        description: raw.description,
+        privacy_tier: raw.privacy_tier,
+        priority_profile: raw.priority_profile,
+        summary_node_id: raw.summary_node_id,
+        sort_order: raw.sort_order,
+        created_at: raw.created_at,
+        updated_at: raw.updated_at,
+        deleted_at: raw.deleted_at,
+        meta: raw.meta,
+        ui_metadata: raw.ui_metadata,
+    };
+
+    if raw.encrypted_payload.is_some() {
+        match (raw.encrypted_payload.as_deref(), session_key) {
+            (Some(payload), Some(key)) => {
+                let decrypted: redacted::VaultSecretPayload =
+                    redacted::decrypt_json(payload, &key)?;
+                vault.name = decrypted.name;
+                vault.icon = decrypted.icon;
+                vault.description = decrypted.description;
+            }
+            _ => redacted::apply_locked_vault_placeholder(&mut vault),
+        }
+    }
+
+    Ok(vault)
+}
+
+struct RawNodeRecord {
+    id: String,
+    vault_id: String,
+    sub_vault_id: Option<String>,
+    node_type: String,
+    title: String,
+    summary: String,
+    detail: Option<String>,
+    source: Option<String>,
+    source_type: Option<String>,
+    privacy_tier: Option<String>,
+    priority: String,
+    version: i64,
+    is_archived: bool,
+    created_at: String,
+    updated_at: String,
+    last_accessed: String,
+    deleted_at: Option<String>,
+    meta: String,
+    encrypted_payload: Option<String>,
+}
+
+fn raw_node_from_row(row: &Row<'_>) -> rusqlite::Result<RawNodeRecord> {
+    Ok(RawNodeRecord {
         id: row.get(0)?,
         vault_id: row.get(1)?,
         sub_vault_id: row.get(2)?,
@@ -324,7 +406,50 @@ fn node_from_row(row: &Row<'_>) -> rusqlite::Result<Node> {
         last_accessed: row.get(15)?,
         deleted_at: row.get(16)?,
         meta: row.get(17)?,
+        encrypted_payload: row.get(18)?,
     })
+}
+
+fn resolve_node_record(
+    raw: RawNodeRecord,
+    session_key: Option<redacted::SessionKey>,
+) -> Result<Node, String> {
+    let mut node = Node {
+        id: raw.id,
+        vault_id: raw.vault_id,
+        sub_vault_id: raw.sub_vault_id,
+        node_type: raw.node_type,
+        title: raw.title,
+        summary: raw.summary,
+        detail: raw.detail,
+        source: raw.source,
+        source_type: raw.source_type,
+        privacy_tier: raw.privacy_tier,
+        priority: raw.priority,
+        version: raw.version,
+        is_archived: raw.is_archived,
+        created_at: raw.created_at,
+        updated_at: raw.updated_at,
+        last_accessed: raw.last_accessed,
+        deleted_at: raw.deleted_at,
+        meta: raw.meta,
+    };
+
+    if raw.encrypted_payload.is_some() {
+        match (raw.encrypted_payload.as_deref(), session_key) {
+            (Some(payload), Some(key)) => {
+                let decrypted: redacted::NodeSecretPayload = redacted::decrypt_json(payload, &key)?;
+                node.title = decrypted.title;
+                node.summary = decrypted.summary;
+                node.detail = decrypted.detail;
+                node.source = decrypted.source;
+                node.source_type = decrypted.source_type;
+            }
+            _ => redacted::apply_locked_node_placeholder(&mut node),
+        }
+    }
+
+    Ok(node)
 }
 
 fn tag_from_row(row: &Row<'_>) -> rusqlite::Result<Tag> {
@@ -361,69 +486,79 @@ fn backlink_from_row(row: &Row<'_>) -> rusqlite::Result<Backlink> {
     })
 }
 
-fn fetch_vault_by_id(conn: &Connection, vault_id: &str) -> Result<Vault, String> {
-    conn.query_row(
-        "SELECT id, parent_vault_id, name, icon, description, privacy_tier, priority_profile, summary_node_id,
-                sort_order, created_at, updated_at, deleted_at, meta
-         FROM (
-            SELECT id,
-                   NULL AS parent_vault_id,
-                   name,
-                   icon,
-                   description,
-                   privacy_tier,
-                   priority_profile,
-                   summary_node_id,
-                   sort_order,
-                   created_at,
-                   updated_at,
-                   deleted_at,
-                   meta
-            FROM vaults
-            WHERE deleted_at IS NULL
-            UNION ALL
-            SELECT id,
-                   vault_id AS parent_vault_id,
-                   name,
-                   icon,
-                   description,
-                   COALESCE(privacy_tier, 'open') AS privacy_tier,
-                   COALESCE(priority_profile, 'standard') AS priority_profile,
-                   summary_node_id,
-                   sort_order,
-                   created_at,
-                   updated_at,
-                   deleted_at,
-                   meta
-            FROM sub_vaults
-            WHERE deleted_at IS NULL
-         )
-         WHERE id = ?1
-         LIMIT 1;",
-        [vault_id],
-        vault_from_row,
-    )
-    .map_err(|err| format!("Failed fetching vault {vault_id}: {err}"))
+fn fetch_vault_by_id(
+    conn: &Connection,
+    vault_id: &str,
+    session_key: Option<redacted::SessionKey>,
+) -> Result<Vault, String> {
+    let raw = conn
+        .query_row(
+            "SELECT id, parent_vault_id, name, icon, description, privacy_tier, priority_profile, summary_node_id,
+                    sort_order, created_at, updated_at, deleted_at, meta, ui_metadata, encrypted_payload
+             FROM (
+                SELECT id,
+                       NULL AS parent_vault_id,
+                       name,
+                       icon,
+                       description,
+                       privacy_tier,
+                       priority_profile,
+                       summary_node_id,
+                       sort_order,
+                       created_at,
+                       updated_at,
+                       deleted_at,
+                       meta,
+                       ui_metadata,
+                       encrypted_payload
+                FROM vaults
+                WHERE deleted_at IS NULL
+                UNION ALL
+                SELECT id,
+                       vault_id AS parent_vault_id,
+                       name,
+                       icon,
+                       description,
+                       COALESCE(privacy_tier, 'open') AS privacy_tier,
+                       COALESCE(priority_profile, 'standard') AS priority_profile,
+                       summary_node_id,
+                       sort_order,
+                       created_at,
+                       updated_at,
+                       deleted_at,
+                       meta,
+                       ui_metadata,
+                       encrypted_payload
+                FROM sub_vaults
+                WHERE deleted_at IS NULL
+             )
+             WHERE id = ?1
+             LIMIT 1;",
+            [vault_id],
+            raw_vault_from_row,
+        )
+        .map_err(|err| format!("Failed fetching vault {vault_id}: {err}"))?;
+    resolve_vault_record(raw, session_key)
 }
 
-fn fetch_node_by_id(conn: &Connection, node_id: &str) -> Result<Option<Node>, String> {
-    conn.query_row(
+fn fetch_node_by_id(
+    conn: &Connection,
+    node_id: &str,
+    session_key: Option<redacted::SessionKey>,
+) -> Result<Option<Node>, String> {
+    match conn.query_row(
         "SELECT id, vault_id, sub_vault_id, node_type, title, summary, detail, source, source_type,
                 privacy_tier, priority, version, is_archived, created_at, updated_at, last_accessed,
-                deleted_at, meta
+                deleted_at, meta, encrypted_payload
          FROM nodes
          WHERE id = ?1;",
         [node_id],
-        node_from_row,
-    )
-    .map(Some)
-    .or_else(|err| {
-        if matches!(err, rusqlite::Error::QueryReturnedNoRows) {
-            Ok(None)
-        } else {
-            Err(format!("Failed fetching node {node_id}: {err}"))
-        }
-    })
+        raw_node_from_row,
+    ) {
+        Ok(raw) => resolve_node_record(raw, session_key).map(Some),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(err) => Err(format!("Failed fetching node {node_id}: {err}")),
+    }
 }
 
 fn fetch_tag_by_id(conn: &Connection, tag_id: &str) -> Result<Tag, String> {
@@ -449,12 +584,15 @@ fn fetch_door_by_id(conn: &Connection, door_id: &str) -> Result<Door, String> {
     .map_err(|err| format!("Failed fetching door {door_id}: {err}"))
 }
 
-fn fetch_nodes(conn: &Connection) -> Result<Vec<Node>, String> {
+fn fetch_nodes(
+    conn: &Connection,
+    session_key: Option<redacted::SessionKey>,
+) -> Result<Vec<Node>, String> {
     let mut statement = conn
         .prepare(
             "SELECT id, vault_id, sub_vault_id, node_type, title, summary, detail, source, source_type,
                     privacy_tier, priority, version, is_archived, created_at, updated_at, last_accessed,
-                    deleted_at, meta
+                    deleted_at, meta, encrypted_payload
              FROM nodes
              WHERE deleted_at IS NULL
              ORDER BY created_at DESC;",
@@ -462,14 +600,74 @@ fn fetch_nodes(conn: &Connection) -> Result<Vec<Node>, String> {
         .map_err(|err| format!("Failed preparing node_list query: {err}"))?;
 
     let rows = statement
-        .query_map([], node_from_row)
+        .query_map([], raw_node_from_row)
         .map_err(|err| format!("Failed querying nodes: {err}"))?;
 
     let mut nodes = Vec::new();
     for row in rows {
-        nodes.push(row.map_err(|err| format!("Failed decoding node row: {err}"))?);
+        let raw = row.map_err(|err| format!("Failed decoding node row: {err}"))?;
+        nodes.push(resolve_node_record(raw, session_key)?);
     }
     Ok(nodes)
+}
+
+pub(crate) fn resolve_vault_effective_privacy(
+    conn: &Connection,
+    vault_id: &str,
+) -> Result<String, String> {
+    let mut current_id = Some(vault_id.to_string());
+    let mut strictest = "open".to_string();
+
+    while let Some(id) = current_id {
+        let record = conn
+            .query_row(
+                "SELECT parent_vault_id, privacy_tier
+                 FROM (
+                    SELECT id, NULL AS parent_vault_id, privacy_tier
+                    FROM vaults
+                    WHERE deleted_at IS NULL
+                    UNION ALL
+                    SELECT id, vault_id AS parent_vault_id, COALESCE(privacy_tier, 'open') AS privacy_tier
+                    FROM sub_vaults
+                    WHERE deleted_at IS NULL
+                 )
+                 WHERE id = ?1
+                 LIMIT 1;",
+                [id.as_str()],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, String>(1)?,
+                    ))
+                },
+            )
+            .map_err(|err| format!("Failed resolving vault privacy for {vault_id}: {err}"))?;
+
+        strictest =
+            privacy::get_effective_privacy(Some(record.1.as_str()), None, Some(strictest.as_str()))
+                .to_string();
+        current_id = record.0;
+    }
+
+    Ok(strictest)
+}
+
+pub(crate) fn resolve_node_effective_privacy(
+    conn: &Connection,
+    vault_id: &str,
+    sub_vault_id: Option<&str>,
+    node_privacy_tier: Option<&str>,
+) -> Result<String, String> {
+    let container_tier = if let Some(sub_vault_id) = sub_vault_id {
+        resolve_vault_effective_privacy(conn, sub_vault_id)?
+    } else {
+        resolve_vault_effective_privacy(conn, vault_id)?
+    };
+
+    Ok(
+        privacy::get_effective_privacy(node_privacy_tier, None, Some(container_tier.as_str()))
+            .to_string(),
+    )
 }
 
 fn migrations_dir() -> PathBuf {
@@ -654,25 +852,46 @@ fn db_ping(state: tauri::State<'_, DbState>) -> IpcResponse<String> {
 fn settings_get(key: String, state: tauri::State<'_, DbState>) -> IpcResponse<Option<String>> {
     into_ipc((|| {
         let conn = open_connection(&state.db_path)?;
-        conn.query_row(
-            "SELECT value FROM settings WHERE key = ?1 LIMIT 1;",
-            [key],
-            |row| row.get::<_, String>(0),
-        )
-        .map(Some)
-        .or_else(|err| {
-            if matches!(err, rusqlite::Error::QueryReturnedNoRows) {
-                Ok(None)
-            } else {
-                Err(format!("Failed reading setting: {err}"))
+        let value = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = ?1 LIMIT 1;",
+                [key],
+                |row| row.get::<_, String>(0),
+            )
+            .ok();
+
+        if let Some(val) = value {
+            // Attempt decryption if it looks like an encrypted payload and we have a session key
+            if val.starts_with(r#"{"v":1,"alg":"aes-256-gcm""#) {
+                if let Some(session_key) = redacted::get_session_key(&state) {
+                    if let Ok(decrypted) = redacted::decrypt_json::<String>(&val, &session_key) {
+                        return Ok(Some(decrypted));
+                    }
+                }
             }
-        })
+            Ok(Some(val))
+        } else {
+            Ok(None)
+        }
     })())
 }
 
 #[tauri::command]
-fn settings_set(key: String, value: String, state: tauri::State<'_, DbState>) -> IpcResponse<bool> {
+fn settings_set(
+    key: String,
+    mut value: String,
+    state: tauri::State<'_, DbState>,
+) -> IpcResponse<bool> {
     into_ipc((|| {
+        // If this is a sensitive key, try to encrypt it
+        if key.starts_with("mindvault.llm.") && key.ends_with(".apikey") {
+            if let Some(session_key) = redacted::get_session_key(&state) {
+                if let Ok(encrypted) = redacted::encrypt_json(&value, &session_key) {
+                    value = encrypted;
+                }
+            }
+        }
+
         let conn = open_connection(&state.db_path)?;
         conn.execute(
             "INSERT INTO settings (key, value, scope, updated_at)
@@ -732,38 +951,84 @@ fn vault_create(input: VaultCreateInput, state: tauri::State<'_, DbState>) -> Ip
             .unwrap_or_else(|| "standard".to_string());
         let sort_order = input.sort_order.unwrap_or(0);
         let meta = input.meta.unwrap_or_else(|| "{}".to_string());
+        let session_key = redacted::get_session_key(&state);
+
+        let parent_tier = if let Some(parent_vault_id) = input.parent_vault_id.as_deref() {
+            Some(resolve_vault_effective_privacy(&tx, parent_vault_id)?)
+        } else {
+            None
+        };
+        let effective_privacy = privacy::get_effective_privacy(
+            Some(privacy_tier.as_str()),
+            None,
+            parent_tier.as_deref(),
+        );
+        let is_redacted = effective_privacy == "redacted";
+        let encrypted_payload = if is_redacted {
+            let key = session_key.ok_or_else(|| {
+                "Unlock redacted content with your master password before creating a redacted vault."
+                    .to_string()
+            })?;
+            Some(redacted::encrypt_json(
+                &redacted::VaultSecretPayload {
+                    name: input.name.clone(),
+                    icon: input.icon.clone(),
+                    description: input.description.clone(),
+                },
+                &key,
+            )?)
+        } else {
+            None
+        };
+        let stored_name = if is_redacted {
+            "[REDACTED]".to_string()
+        } else {
+            input.name.clone()
+        };
+        let stored_description = if is_redacted {
+            Some("[Metadata Locked]".to_string())
+        } else {
+            input.description.clone()
+        };
+        let stored_icon = if is_redacted {
+            None
+        } else {
+            input.icon.clone()
+        };
 
         if let Some(parent_vault_id) = input.parent_vault_id {
             tx.execute(
                 "INSERT INTO sub_vaults (
-                    id, vault_id, name, icon, description, privacy_tier, priority_profile, sort_order, meta
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9);",
+                    id, vault_id, name, icon, description, privacy_tier, priority_profile, sort_order, meta, encrypted_payload
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10);",
                 params![
                     id,
                     parent_vault_id,
-                    input.name,
-                    input.icon,
-                    input.description,
+                    stored_name,
+                    stored_icon,
+                    stored_description,
                     privacy_tier,
                     priority_profile,
                     sort_order,
-                    meta
+                    meta,
+                    encrypted_payload
                 ],
             )
             .map_err(|err| format!("Failed inserting sub-vault: {err}"))?;
         } else {
             tx.execute(
-                "INSERT INTO vaults (id, name, icon, description, privacy_tier, priority_profile, sort_order, meta)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8);",
+                "INSERT INTO vaults (id, name, icon, description, privacy_tier, priority_profile, sort_order, meta, encrypted_payload)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9);",
                 params![
                     id,
-                    input.name,
-                    input.icon,
-                    input.description,
+                    stored_name,
+                    stored_icon,
+                    stored_description,
                     privacy_tier,
                     priority_profile,
                     sort_order,
-                    meta
+                    meta,
+                    encrypted_payload
                 ],
             )
             .map_err(|err| format!("Failed inserting vault: {err}"))?;
@@ -772,7 +1037,7 @@ fn vault_create(input: VaultCreateInput, state: tauri::State<'_, DbState>) -> Ip
         tx.commit()
             .map_err(|err| format!("Failed committing vault_create: {err}"))?;
 
-        fetch_vault_by_id(&conn, &id)
+        fetch_vault_by_id(&conn, &id, session_key)
     })())
 }
 
@@ -780,10 +1045,11 @@ fn vault_create(input: VaultCreateInput, state: tauri::State<'_, DbState>) -> Ip
 fn vault_list(state: tauri::State<'_, DbState>) -> IpcResponse<Vec<Vault>> {
     into_ipc((|| {
         let conn = open_connection(&state.db_path)?;
+        let session_key = redacted::get_session_key(&state);
         let mut statement = conn
             .prepare(
                 "SELECT id, parent_vault_id, name, icon, description, privacy_tier, priority_profile, summary_node_id,
-                        sort_order, created_at, updated_at, deleted_at, meta
+                        sort_order, created_at, updated_at, deleted_at, meta, ui_metadata, encrypted_payload
                  FROM (
                     SELECT id,
                            NULL AS parent_vault_id,
@@ -797,7 +1063,9 @@ fn vault_list(state: tauri::State<'_, DbState>) -> IpcResponse<Vec<Vault>> {
                            created_at,
                            updated_at,
                            deleted_at,
-                           meta
+                           meta,
+                           ui_metadata,
+                           encrypted_payload
                     FROM vaults
                     WHERE deleted_at IS NULL
                     UNION ALL
@@ -813,7 +1081,9 @@ fn vault_list(state: tauri::State<'_, DbState>) -> IpcResponse<Vec<Vault>> {
                            created_at,
                            updated_at,
                            deleted_at,
-                           meta
+                           meta,
+                           ui_metadata,
+                           encrypted_payload
                     FROM sub_vaults
                     WHERE deleted_at IS NULL
                  )
@@ -822,14 +1092,229 @@ fn vault_list(state: tauri::State<'_, DbState>) -> IpcResponse<Vec<Vault>> {
             .map_err(|err| format!("Failed preparing vault_list query: {err}"))?;
 
         let rows = statement
-            .query_map([], vault_from_row)
+            .query_map([], raw_vault_from_row)
             .map_err(|err| format!("Failed querying vaults: {err}"))?;
 
         let mut vaults = Vec::new();
         for row in rows {
-            vaults.push(row.map_err(|err| format!("Failed decoding vault row: {err}"))?);
+            let raw = row.map_err(|err| format!("Failed decoding vault row: {err}"))?;
+            vaults.push(resolve_vault_record(raw, session_key)?);
         }
         Ok(vaults)
+    })())
+}
+
+#[tauri::command]
+fn vault_update_position(
+    vault_id: String,
+    x: f64,
+    y: f64,
+    state: tauri::State<'_, DbState>,
+) -> IpcResponse<bool> {
+    into_ipc((|| {
+        let mut conn = open_connection(&state.db_path)?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("Failed starting vault_update_position transaction: {err}"))?;
+
+        let current_meta: String = tx
+            .query_row(
+                "SELECT COALESCE(ui_metadata, '{}') FROM (
+                    SELECT ui_metadata FROM vaults WHERE id = ?1 AND deleted_at IS NULL
+                    UNION ALL
+                    SELECT ui_metadata FROM sub_vaults WHERE id = ?1 AND deleted_at IS NULL
+                 ) LIMIT 1;",
+                [&vault_id],
+                |row| row.get(0),
+            )
+            .map_err(|err| {
+                format!("Failed fetching current ui_metadata for vault {vault_id}: {err}")
+            })?;
+
+        let mut meta_val: serde_json::Value =
+            serde_json::from_str(&current_meta).unwrap_or_else(|_| serde_json::json!({}));
+        meta_val["position"] = serde_json::json!({ "x": x, "y": y });
+        let updated_meta = serde_json::to_string(&meta_val)
+            .map_err(|err| format!("Failed serializing updated ui_metadata: {err}"))?;
+
+        let affected_vaults = tx
+            .execute(
+                "UPDATE vaults
+                 SET ui_metadata = ?2,
+                     updated_at = datetime('now')
+                 WHERE id = ?1 AND deleted_at IS NULL;",
+                params![&vault_id, &updated_meta],
+            )
+            .map_err(|err| format!("Failed updating vaults position: {err}"))?;
+
+        let affected_sub = if affected_vaults == 0 {
+            tx.execute(
+                "UPDATE sub_vaults
+                 SET ui_metadata = ?2,
+                     updated_at = datetime('now')
+                 WHERE id = ?1 AND deleted_at IS NULL;",
+                params![&vault_id, &updated_meta],
+            )
+            .map_err(|err| format!("Failed updating sub_vaults position: {err}"))?
+        } else {
+            0
+        };
+
+        tx.commit()
+            .map_err(|err| format!("Failed committing vault_update_position transaction: {err}"))?;
+
+        Ok(affected_vaults + affected_sub > 0)
+    })())
+}
+
+#[tauri::command]
+fn vault_update_color_theme(
+    vault_id: String,
+    color_theme: String,
+    state: tauri::State<'_, DbState>,
+) -> IpcResponse<bool> {
+    into_ipc((|| {
+        let mut conn = open_connection(&state.db_path)?;
+        let tx = conn.transaction().map_err(|err| {
+            format!("Failed starting vault_update_color_theme transaction: {err}")
+        })?;
+
+        let current_meta: String = tx
+            .query_row(
+                "SELECT ui_metadata FROM (
+                    SELECT ui_metadata FROM vaults WHERE id = ?1 AND deleted_at IS NULL
+                    UNION ALL
+                    SELECT ui_metadata FROM sub_vaults WHERE id = ?1 AND deleted_at IS NULL
+                 ) LIMIT 1;",
+                [&vault_id],
+                |row| row.get(0),
+            )
+            .map_err(|err| {
+                format!("Failed fetching current ui_metadata for vault {vault_id}: {err}")
+            })?;
+
+        let mut meta_val: serde_json::Value =
+            serde_json::from_str(&current_meta).unwrap_or_else(|_| serde_json::json!({}));
+        meta_val["colorTheme"] = serde_json::json!(color_theme);
+        let updated_meta = serde_json::to_string(&meta_val)
+            .map_err(|err| format!("Failed serializing updated ui_metadata: {err}"))?;
+
+        let affected_vaults = tx
+            .execute(
+                "UPDATE vaults
+                 SET ui_metadata = ?2,
+                     updated_at = datetime('now')
+                 WHERE id = ?1 AND deleted_at IS NULL;",
+                params![&vault_id, &updated_meta],
+            )
+            .map_err(|err| format!("Failed updating vaults color theme: {err}"))?;
+
+        let affected_sub = if affected_vaults == 0 {
+            tx.execute(
+                "UPDATE sub_vaults
+                 SET ui_metadata = ?2,
+                     updated_at = datetime('now')
+                 WHERE id = ?1 AND deleted_at IS NULL;",
+                params![&vault_id, &updated_meta],
+            )
+            .map_err(|err| format!("Failed updating sub_vaults color theme: {err}"))?
+        } else {
+            0
+        };
+
+        tx.commit().map_err(|err| {
+            format!("Failed committing vault_update_color_theme transaction: {err}")
+        })?;
+
+        Ok(affected_vaults + affected_sub > 0)
+    })())
+}
+
+#[tauri::command]
+fn vault_get(vault_id: String, state: tauri::State<'_, DbState>) -> IpcResponse<Option<Vault>> {
+    into_ipc((|| {
+        let conn = open_connection(&state.db_path)?;
+        match fetch_vault_by_id(&conn, &vault_id, redacted::get_session_key(&state)) {
+            Ok(v) => Ok(Some(v)),
+            Err(e) => {
+                if e.contains("QueryReturnedNoRows") || e.contains("no rows") {
+                    Ok(None)
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    })())
+}
+
+#[tauri::command]
+fn door_list_all(state: tauri::State<'_, DbState>) -> IpcResponse<Vec<Door>> {
+    into_ipc((|| {
+        let conn = open_connection(&state.db_path)?;
+        let mut statement = conn
+            .prepare(
+                "SELECT d.id, d.source_node_id, d.target_node_id, d.target_vault_id, d.label, d.status,
+                        d.orphan_reason, d.orphan_since, d.created_at, d.updated_at,
+                        tn.privacy_tier AS target_node_privacy,
+                        tv.privacy_tier AS target_vault_privacy,
+                        tsv.privacy_tier AS target_sub_vault_privacy
+                 FROM doors d
+                 LEFT JOIN nodes tn ON d.target_node_id = tn.id AND tn.deleted_at IS NULL
+                 LEFT JOIN vaults tv ON tn.vault_id = tv.id AND tv.deleted_at IS NULL
+                 LEFT JOIN sub_vaults tsv ON tn.sub_vault_id = tsv.id AND tsv.deleted_at IS NULL
+                 WHERE d.orphan_since IS NULL;"
+            )
+            .map_err(|err| format!("Failed preparing door_list_all query: {err}"))?;
+
+        let rows = statement
+            .query_map([], |row| {
+                let id: String = row.get(0)?;
+                let source_node_id: String = row.get(1)?;
+                let mut target_node_id: Option<String> = row.get(2)?;
+                let target_vault_id: Option<String> = row.get(3)?;
+                let mut label: Option<String> = row.get(4)?;
+                let status: String = row.get(5)?;
+                let orphan_reason: Option<String> = row.get(6)?;
+                let orphan_since: Option<String> = row.get(7)?;
+                let created_at: String = row.get(8)?;
+                let updated_at: String = row.get(9)?;
+
+                let target_node_privacy: Option<String> = row.get(10)?;
+                let target_vault_privacy: Option<String> = row.get(11)?;
+                let target_sub_vault_privacy: Option<String> = row.get(12)?;
+
+                if target_node_id.is_some() {
+                    let effective_privacy = privacy::get_effective_privacy(
+                        target_node_privacy.as_deref(),
+                        target_sub_vault_privacy.as_deref(),
+                        target_vault_privacy.as_deref(),
+                    );
+                    if effective_privacy == "redacted" {
+                        target_node_id = Some("redacted-node-stub".to_string());
+                        label = Some("[REDACTED]".to_string());
+                    }
+                }
+
+                Ok(Door {
+                    id,
+                    source_node_id,
+                    target_node_id,
+                    target_vault_id,
+                    label,
+                    status,
+                    orphan_reason,
+                    orphan_since,
+                    created_at,
+                    updated_at,
+                })
+            })
+            .map_err(|err| format!("Failed querying all doors: {err}"))?;
+
+        let mut doors = Vec::new();
+        for row in rows {
+            doors.push(row.map_err(|err| format!("Failed decoding door row: {err}"))?);
+        }
+        Ok(doors)
     })())
 }
 
@@ -873,10 +1358,81 @@ fn vault_update(input: VaultUpdateInput, state: tauri::State<'_, DbState>) -> Ip
             .map_err(|err| format!("Failed starting vault_update transaction: {err}"))?;
 
         let vault_id = input.id;
-        let current = fetch_vault_by_id(&tx, &vault_id)?;
+        let session_key = redacted::get_session_key(&state);
+        let current = fetch_vault_by_id(&tx, &vault_id, session_key)?;
+        let current_privacy_tier = current.privacy_tier.clone();
         let next_name = input.name.unwrap_or(current.name);
-        let next_privacy_tier = input.privacy_tier.unwrap_or(current.privacy_tier);
+        let next_privacy_tier = input.privacy_tier.unwrap_or(current_privacy_tier.clone());
         let next_priority_profile = input.priority_profile.unwrap_or(current.priority_profile);
+        let next_icon = input.icon.or(current.icon);
+        let next_description = input.description.or(current.description);
+        let parent_tier = current
+            .parent_vault_id
+            .as_deref()
+            .map(|parent_id| resolve_vault_effective_privacy(&tx, parent_id))
+            .transpose()?;
+        let next_effective_privacy = privacy::get_effective_privacy(
+            Some(next_privacy_tier.as_str()),
+            None,
+            parent_tier.as_deref(),
+        );
+        let should_encrypt = next_effective_privacy == "redacted";
+        let current_is_encrypted = tx
+            .query_row(
+                "SELECT EXISTS(
+                    SELECT 1
+                    FROM vaults
+                    WHERE id = ?1 AND deleted_at IS NULL AND encrypted_payload IS NOT NULL
+                    UNION ALL
+                    SELECT 1
+                    FROM sub_vaults
+                    WHERE id = ?1 AND deleted_at IS NULL AND encrypted_payload IS NOT NULL
+                );",
+                [&vault_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|err| format!("Failed checking redacted state for vault {vault_id}: {err}"))?
+            > 0;
+        ensure_encrypted_vault_can_be_unredacted(
+            current_is_encrypted,
+            session_key,
+            should_encrypt,
+        )?;
+        let encrypted_payload = if should_encrypt {
+            let key = session_key.ok_or_else(|| {
+                "Unlock redacted content with your master password before saving.".to_string()
+            })?;
+            Some(redacted::encrypt_json(
+                &redacted::VaultSecretPayload {
+                    name: next_name.clone(),
+                    icon: next_icon.clone(),
+                    description: next_description.clone(),
+                },
+                &key,
+            )?)
+        } else {
+            None
+        };
+        let stored_name = if should_encrypt {
+            "[REDACTED]".to_string()
+        } else {
+            next_name.clone()
+        };
+        let stored_description = if should_encrypt {
+            Some("[Metadata Locked]".to_string())
+        } else {
+            next_description.clone()
+        };
+        let stored_icon = if should_encrypt {
+            None
+        } else {
+            next_icon.clone()
+        };
+        let next_encrypted_payload = if should_encrypt {
+            encrypted_payload.clone()
+        } else {
+            None
+        };
 
         let affected_vaults = tx
             .execute(
@@ -884,13 +1440,19 @@ fn vault_update(input: VaultUpdateInput, state: tauri::State<'_, DbState>) -> Ip
                  SET name = ?2,
                      privacy_tier = ?3,
                      priority_profile = ?4,
+                     icon = ?5,
+                     description = ?6,
+                     encrypted_payload = ?7,
                      updated_at = datetime('now')
                  WHERE id = ?1 AND deleted_at IS NULL;",
                 params![
                     &vault_id,
-                    &next_name,
+                    &stored_name,
                     &next_privacy_tier,
-                    &next_priority_profile
+                    &next_priority_profile,
+                    &stored_icon,
+                    &stored_description,
+                    &next_encrypted_payload
                 ],
             )
             .map_err(|err| format!("Failed updating vault: {err}"))?;
@@ -901,13 +1463,19 @@ fn vault_update(input: VaultUpdateInput, state: tauri::State<'_, DbState>) -> Ip
                  SET name = ?2,
                      privacy_tier = ?3,
                      priority_profile = ?4,
+                     icon = ?5,
+                     description = ?6,
+                     encrypted_payload = ?7,
                      updated_at = datetime('now')
                  WHERE id = ?1 AND deleted_at IS NULL;",
                 params![
                     &vault_id,
-                    &next_name,
+                    &stored_name,
                     &next_privacy_tier,
-                    &next_priority_profile
+                    &next_priority_profile,
+                    &stored_icon,
+                    &stored_description,
+                    &next_encrypted_payload
                 ],
             )
             .map_err(|err| format!("Failed updating sub-vault: {err}"))?;
@@ -916,8 +1484,22 @@ fn vault_update(input: VaultUpdateInput, state: tauri::State<'_, DbState>) -> Ip
         tx.commit()
             .map_err(|err| format!("Failed committing vault_update: {err}"))?;
 
-        fetch_vault_by_id(&conn, &vault_id)
+        fetch_vault_by_id(&conn, &vault_id, session_key)
     })())
+}
+
+fn ensure_encrypted_vault_can_be_unredacted(
+    current_is_encrypted: bool,
+    session_key: Option<redacted::SessionKey>,
+    should_encrypt: bool,
+) -> Result<(), String> {
+    if current_is_encrypted && !should_encrypt && session_key.is_none() {
+        return Err(
+            "Unlock redacted content with your master password before changing the vault to a non-redacted tier."
+                .to_string(),
+        );
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -942,6 +1524,63 @@ fn tag_list(state: tauri::State<'_, DbState>) -> IpcResponse<Vec<Tag>> {
         }
         Ok(tags)
     })())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ensure_encrypted_node_can_be_unredacted, ensure_encrypted_vault_can_be_unredacted,
+    };
+
+    #[test]
+    fn encrypted_vault_cannot_be_unredacted_without_session_key() {
+        let result = ensure_encrypted_vault_can_be_unredacted(true, None, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn encrypted_vault_can_stay_redacted_without_session_key() {
+        let result = ensure_encrypted_vault_can_be_unredacted(true, None, true);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn unencrypted_vault_is_not_blocked_without_session_key() {
+        let result = ensure_encrypted_vault_can_be_unredacted(false, None, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn unlocked_vault_can_be_unredacted() {
+        let session_key = Some([7_u8; 32]);
+        let result = ensure_encrypted_vault_can_be_unredacted(true, session_key, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn encrypted_node_cannot_be_unredacted_without_session_key() {
+        let result = ensure_encrypted_node_can_be_unredacted(true, None, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn encrypted_node_can_stay_redacted_without_session_key() {
+        let result = ensure_encrypted_node_can_be_unredacted(true, None, true);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn unencrypted_node_is_not_blocked_without_session_key() {
+        let result = ensure_encrypted_node_can_be_unredacted(false, None, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn unlocked_node_can_be_unredacted() {
+        let session_key = Some([9_u8; 32]);
+        let result = ensure_encrypted_node_can_be_unredacted(true, session_key, false);
+        assert!(result.is_ok());
+    }
 }
 
 #[tauri::command]
@@ -1161,25 +1800,74 @@ fn node_create(input: NodeCreateInput, state: tauri::State<'_, DbState>) -> IpcR
             .priority
             .unwrap_or_else(|| priority::DEFAULT_PRIORITY_JSON.to_string());
         let meta = input.meta.unwrap_or_else(|| "{}".to_string());
+        let session_key = redacted::get_session_key(&state);
+        let effective_privacy = resolve_node_effective_privacy(
+            &tx,
+            &input.vault_id,
+            input.sub_vault_id.as_deref(),
+            input.privacy_tier.as_deref(),
+        )?;
+        let is_redacted = effective_privacy == "redacted";
+        let encrypted_payload = if is_redacted {
+            let key = session_key.ok_or_else(|| {
+                "Unlock redacted content with your master password before creating a redacted node."
+                    .to_string()
+            })?;
+            Some(redacted::encrypt_json(
+                &redacted::NodeSecretPayload {
+                    title: input.title.clone(),
+                    summary: input.summary.clone(),
+                    detail: input.detail.clone(),
+                    source: input.source.clone(),
+                    source_type: input.source_type.clone(),
+                },
+                &key,
+            )?)
+        } else {
+            None
+        };
+        let stored_title = if is_redacted {
+            "[REDACTED]".to_string()
+        } else {
+            input.title.clone()
+        };
+        let stored_summary = if is_redacted {
+            "[Metadata Locked]".to_string()
+        } else {
+            input.summary.clone()
+        };
 
         tx.execute(
             "INSERT INTO nodes (
                 id, vault_id, sub_vault_id, node_type, title, summary, detail, source, source_type,
-                privacy_tier, priority, meta
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12);",
+                privacy_tier, priority, meta, encrypted_payload
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13);",
             params![
                 id,
                 input.vault_id,
                 input.sub_vault_id,
                 node_type,
-                input.title,
-                input.summary,
-                input.detail,
-                input.source,
-                input.source_type,
+                stored_title,
+                stored_summary,
+                if is_redacted {
+                    None::<String>
+                } else {
+                    input.detail
+                },
+                if is_redacted {
+                    None::<String>
+                } else {
+                    input.source
+                },
+                if is_redacted {
+                    None::<String>
+                } else {
+                    input.source_type
+                },
                 input.privacy_tier,
                 priority_json,
-                meta
+                meta,
+                encrypted_payload
             ],
         )
         .map_err(|err| format!("Failed inserting node: {err}"))?;
@@ -1187,7 +1875,7 @@ fn node_create(input: NodeCreateInput, state: tauri::State<'_, DbState>) -> IpcR
         tx.commit()
             .map_err(|err| format!("Failed committing node_create: {err}"))?;
 
-        fetch_node_by_id(&conn, &id)
+        fetch_node_by_id(&conn, &id, session_key)
             .and_then(|node| node.ok_or_else(|| "Node not found after insert".to_string()))
     })())
 }
@@ -1196,7 +1884,7 @@ fn node_create(input: NodeCreateInput, state: tauri::State<'_, DbState>) -> IpcR
 fn node_get(node_id: String, state: tauri::State<'_, DbState>) -> IpcResponse<Option<Node>> {
     into_ipc((|| {
         let conn = open_connection(&state.db_path)?;
-        match fetch_node_by_id(&conn, &node_id)? {
+        match fetch_node_by_id(&conn, &node_id, redacted::get_session_key(&state))? {
             Some(node) if node.deleted_at.is_none() => Ok(Some(node)),
             _ => Ok(None),
         }
@@ -1207,7 +1895,7 @@ fn node_get(node_id: String, state: tauri::State<'_, DbState>) -> IpcResponse<Op
 fn node_list(state: tauri::State<'_, DbState>) -> IpcResponse<Vec<Node>> {
     into_ipc((|| {
         let conn = open_connection(&state.db_path)?;
-        fetch_nodes(&conn)
+        fetch_nodes(&conn, redacted::get_session_key(&state))
     })())
 }
 
@@ -1219,7 +1907,8 @@ fn node_update(input: NodeUpdateInput, state: tauri::State<'_, DbState>) -> IpcR
             .transaction()
             .map_err(|err| format!("Failed starting node_update transaction: {err}"))?;
 
-        let current = fetch_node_by_id(&tx, &input.id)?
+        let session_key = redacted::get_session_key(&state);
+        let current = fetch_node_by_id(&tx, &input.id, session_key)?
             .filter(|node| node.deleted_at.is_none())
             .ok_or_else(|| format!("Node not found: {}", input.id))?;
 
@@ -1240,6 +1929,57 @@ fn node_update(input: NodeUpdateInput, state: tauri::State<'_, DbState>) -> IpcR
         };
         let next_meta = input.meta.unwrap_or(current.meta);
         let next_version = current.version + 1;
+        let effective_privacy = resolve_node_effective_privacy(
+            &tx,
+            &next_vault_id,
+            next_sub_vault_id.as_deref(),
+            next_privacy_tier.as_deref(),
+        )?;
+        let should_encrypt = effective_privacy == "redacted";
+        let current_is_encrypted =
+            tx.query_row(
+                "SELECT EXISTS(
+                    SELECT 1
+                    FROM nodes
+                    WHERE id = ?1 AND deleted_at IS NULL AND encrypted_payload IS NOT NULL
+                );",
+                [&input.id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|err| {
+                format!(
+                    "Failed checking redacted state for node {}: {err}",
+                    input.id
+                )
+            })? > 0;
+        ensure_encrypted_node_can_be_unredacted(current_is_encrypted, session_key, should_encrypt)?;
+        let encrypted_payload = if should_encrypt {
+            let key = session_key.ok_or_else(|| {
+                "Unlock redacted content with your master password before saving.".to_string()
+            })?;
+            Some(redacted::encrypt_json(
+                &redacted::NodeSecretPayload {
+                    title: next_title.clone(),
+                    summary: next_summary.clone(),
+                    detail: next_detail.clone(),
+                    source: next_source.clone(),
+                    source_type: next_source_type.clone(),
+                },
+                &key,
+            )?)
+        } else {
+            None
+        };
+        let stored_title = if should_encrypt {
+            "[REDACTED]".to_string()
+        } else {
+            next_title.clone()
+        };
+        let stored_summary = if should_encrypt {
+            "[Metadata Locked]".to_string()
+        } else {
+            next_summary.clone()
+        };
 
         tx.execute(
             "UPDATE nodes
@@ -1256,23 +1996,37 @@ fn node_update(input: NodeUpdateInput, state: tauri::State<'_, DbState>) -> IpcR
                  version = ?12,
                  is_archived = ?13,
                  updated_at = datetime('now'),
-                 meta = ?14
+                 meta = ?14,
+                 encrypted_payload = ?15
              WHERE id = ?1 AND deleted_at IS NULL;",
             params![
                 input.id,
                 next_vault_id,
                 next_sub_vault_id,
                 next_node_type,
-                next_title,
-                next_summary,
-                next_detail,
-                next_source,
-                next_source_type,
+                stored_title,
+                stored_summary,
+                if should_encrypt {
+                    None::<String>
+                } else {
+                    next_detail
+                },
+                if should_encrypt {
+                    None::<String>
+                } else {
+                    next_source
+                },
+                if should_encrypt {
+                    None::<String>
+                } else {
+                    next_source_type
+                },
                 next_privacy_tier,
                 next_priority,
                 next_version,
                 next_is_archived,
-                next_meta
+                next_meta,
+                encrypted_payload
             ],
         )
         .map_err(|err| format!("Failed updating node: {err}"))?;
@@ -1280,11 +2034,25 @@ fn node_update(input: NodeUpdateInput, state: tauri::State<'_, DbState>) -> IpcR
         tx.commit()
             .map_err(|err| format!("Failed committing node_update: {err}"))?;
 
-        fetch_node_by_id(&conn, &input.id).and_then(|node| {
+        fetch_node_by_id(&conn, &input.id, session_key).and_then(|node| {
             node.filter(|n| n.deleted_at.is_none())
                 .ok_or_else(|| format!("Node not found after update: {}", input.id))
         })
     })())
+}
+
+fn ensure_encrypted_node_can_be_unredacted(
+    current_is_encrypted: bool,
+    session_key: Option<redacted::SessionKey>,
+    should_encrypt: bool,
+) -> Result<(), String> {
+    if current_is_encrypted && !should_encrypt && session_key.is_none() {
+        return Err(
+            "Unlock redacted content with your master password before changing the node to a non-redacted tier."
+                .to_string(),
+        );
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1346,6 +2114,9 @@ fn debug_assemble_context(
     state: tauri::State<'_, DbState>,
 ) -> IpcResponse<String> {
     into_ipc((|| {
+        // Because a user is running a direct test context request,
+        // we'll assume they just want to see the un-stubbed result for whatever they selected
+        // to simplify the scope of debug.
         let conn = open_connection(&state.db_path)?;
         llm::assembler::build_context(
             &conn,
@@ -1353,6 +2124,7 @@ fn debug_assemble_context(
             llm::assembler::AssemblerConfig {
                 scope,
                 max_tokens: DEFAULT_ASSEMBLER_MAX_TOKENS,
+                is_unlocked: true, // debug command overrides privacy checks locally
             },
         )
     })())
@@ -1368,9 +2140,13 @@ async fn llm_list_models(provider: String, endpoint: String) -> IpcResponse<Vec<
     let parsed_provider = match provider.trim().to_lowercase().as_str() {
         "ollama" => llm::client::LlmProvider::Ollama,
         "lmstudio" => llm::client::LlmProvider::LmStudio,
+        "anthropic" => llm::client::LlmProvider::Anthropic,
+        "openai" => llm::client::LlmProvider::OpenAi,
+        "google" => llm::client::LlmProvider::Google,
+        "xai" => llm::client::LlmProvider::XAi,
         _ => {
             return IpcResponse::Err {
-                err: "Unsupported provider. Use 'ollama' or 'lmstudio'.".to_string(),
+                err: "Unsupported provider. Use 'ollama', 'lmstudio', 'anthropic', 'openai', 'google', or 'xai'.".to_string(),
             }
         }
     };
@@ -1378,6 +2154,7 @@ async fn llm_list_models(provider: String, endpoint: String) -> IpcResponse<Vec<
     into_ipc(llm::client::LlmClient::list_models(&client).await)
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 async fn llm_chat(
     node_ids: Vec<String>,
@@ -1386,6 +2163,7 @@ async fn llm_chat(
     endpoint: String,
     model: String,
     user_prompt: String,
+    is_redacted_unlocked: bool,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
     let db_path = state.db_path.clone();
@@ -1398,6 +2176,7 @@ async fn llm_chat(
             llm::assembler::AssemblerConfig {
                 scope,
                 max_tokens: DEFAULT_ASSEMBLER_MAX_TOKENS,
+                is_unlocked: is_redacted_unlocked,
             },
         )
     }?;
@@ -1405,7 +2184,11 @@ async fn llm_chat(
     let parsed_provider = match provider.trim().to_lowercase().as_str() {
         "ollama" => llm::client::LlmProvider::Ollama,
         "lmstudio" => llm::client::LlmProvider::LmStudio,
-        _ => return Err("Unsupported provider. Use 'ollama' or 'lmstudio'.".to_string()),
+        "anthropic" => llm::client::LlmProvider::Anthropic,
+        "openai" => llm::client::LlmProvider::OpenAi,
+        "google" => llm::client::LlmProvider::Google,
+        "xai" => llm::client::LlmProvider::XAi,
+        _ => return Err("Unsupported provider. Use 'ollama', 'lmstudio', 'anthropic', 'openai', 'google', or 'xai'.".to_string()),
     };
 
     let client = llm::client::UniversalClient::new(parsed_provider, endpoint, model);
@@ -1456,7 +2239,11 @@ async fn onboarding_extract_proposals(
     let parsed_provider = match provider.trim().to_lowercase().as_str() {
         "ollama" => llm::client::LlmProvider::Ollama,
         "lmstudio" => llm::client::LlmProvider::LmStudio,
-        _ => return Err("Unsupported provider. Use 'ollama' or 'lmstudio'.".to_string()),
+        "anthropic" => llm::client::LlmProvider::Anthropic,
+        "openai" => llm::client::LlmProvider::OpenAi,
+        "google" => llm::client::LlmProvider::Google,
+        "xai" => llm::client::LlmProvider::XAi,
+        _ => return Err("Unsupported provider. Use 'ollama', 'lmstudio', 'anthropic', 'openai', 'google', or 'xai'.".to_string()),
     };
 
     let client = llm::client::UniversalClient::new(
@@ -1602,7 +2389,7 @@ pub fn execute_onboarding_commit(
         // 3. Process and write
         for proposal in validated_proposals {
             // ensure_onboarding_vault_exists already done above
-            let vault = fetch_vault_by_id(&tx, proposal.vault_id)?;
+            let vault = fetch_vault_by_id(&tx, proposal.vault_id, None)?;
             let (resolved_vault_id, resolved_sub_vault_id) = match vault.parent_vault_id {
                 Some(parent_id) => (parent_id, Some(vault.id)),
                 None => (vault.id, None),
@@ -1844,6 +2631,7 @@ pub fn run() {
             run_seed_data(&mut conn).map_err(|err| -> Box<dyn std::error::Error> { err.into() })?;
             app.manage(DbState {
                 db_path: db_path.clone(),
+                redacted_session_key: Mutex::new(None),
             });
 
             let bg_path = db_path;
@@ -1876,6 +2664,9 @@ pub fn run() {
             vault_list,
             vault_delete,
             vault_update,
+            vault_update_position,
+            vault_update_color_theme,
+            vault_get,
             node_create,
             node_get,
             node_list,
@@ -1890,6 +2681,7 @@ pub fn run() {
             door_create,
             door_list_outgoing,
             door_list_incoming,
+            door_list_all,
             door_delete,
             door_repoint,
             auth::auth_secret_is_setup,
