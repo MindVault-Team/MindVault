@@ -6,6 +6,7 @@ const PRIVACY_RANKS: Record<string, number> = {
 };
 
 type VaultHierarchyLike = {
+  name?: string;
   parentVaultId?: string | null;
   privacyTier?: string | null;
 };
@@ -55,7 +56,7 @@ export function getVaultDisplayLabel(
     return "Unknown Vault";
   }
   const effectiveTier = getVaultEffectivePrivacy(vaultId, vaultsById);
-  const name = (vault as { name?: string }).name ?? "Vault";
+  const name = vault.name ?? "Vault";
   return getPrivacyDisplayLabel(name, effectiveTier, isUnlocked, redactedLabel);
 }
 
@@ -79,7 +80,7 @@ export function getVaultDisplayPath(
     }
 
     const effectiveTier = getVaultEffectivePrivacy(currentId, vaultsById);
-    const name = (vault as { name?: string }).name ?? "Vault";
+    const name = vault.name ?? "Vault";
     segments.push(getPrivacyDisplayLabel(name, effectiveTier, isUnlocked));
     currentId = vault.parentVaultId ?? null;
   }
