@@ -176,7 +176,17 @@ function CloudSettings({
   const providerDef = CLOUD_PROVIDERS.find((p) => p.id === provider) || CLOUD_PROVIDERS[0];
   const defaultModel = providerDef.presets[0] || "";
 
-  const [apiKey, setApiKeyState] = useState(() => getApiKey(provider));
+  const [apiKey, setApiKeyState] = useState("");
+  useEffect(() => {
+    let canceled = false;
+    getApiKey(provider).then((key) => {
+      if (!canceled) setApiKeyState(key);
+    });
+    return () => {
+      canceled = true;
+    };
+  }, [provider]);
+
   const [selectedModel, setSelectedModel] = useState(() => getLlmModel(provider) || defaultModel);
   const [status, setStatus] = useState("");
 
@@ -186,8 +196,8 @@ function CloudSettings({
     }
   }, [provider, defaultModel]);
 
-  function handleSave() {
-    setApiKey(provider, apiKey);
+  async function handleSave() {
+    await setApiKey(provider, apiKey);
     setLlmModel(provider, selectedModel);
     setStatus("Saved cloud configuration.");
   }
@@ -358,7 +368,7 @@ function LlmSettings() {
       let endp = "";
       if (p === "ollama") endp = getOllamaEndpoint();
       else if (p === "lmstudio") endp = getLmStudioEndpoint();
-      else endp = getApiKey(p);
+      else endp = await getApiKey(p);
       const m = getLlmModel(p);
 
       const proposals = await unwrapIpcResult(

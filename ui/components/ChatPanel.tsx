@@ -349,7 +349,7 @@ function ChatPanel({
       } else if (provider === "ollama") {
         endpoint = getOllamaEndpoint();
       } else if (["openai", "anthropic", "google", "xai"].includes(provider)) {
-        endpoint = getApiKey(provider);
+        endpoint = await getApiKey(provider);
       }
       const model = getLlmModel();
 

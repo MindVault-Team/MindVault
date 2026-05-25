@@ -1,3 +1,6 @@
+import { settingsGet, settingsSet } from "../ipc";
+import { unwrapIpcResult } from "../services/ipcResult";
+
 const LLM_PROVIDER_KEY = "mindvault.llm.provider";
 const OLLAMA_ENDPOINT_KEY = "mindvault.llm.ollama.endpoint";
 const LMSTUDIO_ENDPOINT_KEY = "mindvault.llm.lmstudio.endpoint";
@@ -101,11 +104,12 @@ export function setLlmMode(mode: "local" | "cloud" | "hybrid"): void {
   window.dispatchEvent(new CustomEvent("mindvault:llm-settings-changed"));
 }
 
-export function getApiKey(provider: string): string {
-  return window.localStorage.getItem(`mindvault.llm.${provider}.apikey`) || "";
+export async function getApiKey(provider: string): Promise<string> {
+  const value = await unwrapIpcResult(settingsGet(`mindvault.llm.${provider}.apikey`));
+  return value || "";
 }
 
-export function setApiKey(provider: string, key: string): void {
-  window.localStorage.setItem(`mindvault.llm.${provider}.apikey`, key.trim());
+export async function setApiKey(provider: string, key: string): Promise<void> {
+  await unwrapIpcResult(settingsSet(`mindvault.llm.${provider}.apikey`, key.trim()));
   window.dispatchEvent(new CustomEvent("mindvault:llm-settings-changed"));
 }
