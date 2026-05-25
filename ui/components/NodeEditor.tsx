@@ -1163,14 +1163,12 @@ function NodeEditor({
                   </div>
                 )}
               </div>
-              {!isContentLocked && (
-                <textarea
-                  value={editSummary}
-                  onChange={(e) => setEditSummary(e.target.value)}
-                  placeholder="Summary"
-                  disabled={isAnyLocked}
-                />
-              )}
+              <textarea
+                value={editSummary}
+                onChange={(e) => setEditSummary(e.target.value)}
+                placeholder="Summary"
+                disabled={isAnyLocked}
+              />
               {isContentLocked ? (
                 <div className="redacted-lock-screen inline-content-lock">
                   <span className="redacted-lock-icon" aria-hidden="true">
