@@ -113,27 +113,26 @@ pub fn check_rate_limit(key: &str) -> Result<(), String> {
 }
 
 pub fn is_node_private(conn: &Connection, node_id: &str) -> Result<bool, String> {
-    let node_info = conn
-        .query_row(
-            "SELECT n.vault_id, n.sub_vault_id, COALESCE(o.privacy_tier, n.privacy_tier)
+    let node_info = conn.query_row(
+        "SELECT n.vault_id, n.sub_vault_id, COALESCE(o.privacy_tier, n.privacy_tier)
              FROM nodes n
              LEFT JOIN privacy_overrides o ON n.id = o.node_id
              WHERE n.id = ?1 AND n.deleted_at IS NULL
              LIMIT 1;",
-            [node_id],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                ))
-            },
-        )
-        .ok();
+        [node_id],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        },
+    );
 
     let (vault_id, sub_vault_id, privacy_tier) = match node_info {
-        Some(info) => info,
-        None => return Ok(false), // Node doesn't exist or is deleted
+        Ok(info) => info,
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(false), // Node doesn't exist or is deleted
+        Err(err) => return Err(format!("Database error in is_node_private: {err}")),
     };
 
     let effective = resolve_node_effective_privacy(
