@@ -1,6 +1,7 @@
 import { runPrivacyTests } from "../ui/utils/privacy.ts";
 import { AppError, toAppError } from "../ui/services/ipcResult.ts";
 import { resolveVaultPath } from "../ui/services/vaults.ts";
+import { sanitizeSvgText } from "../ui/utils/svgSanitizer.ts";
 import type { Node, Vault } from "../ui/ipc.ts";
 
 function runDoorServiceTests() {
@@ -172,6 +173,33 @@ function runVaultServiceTests() {
   );
 }
 
+function runSvgSanitizerTests() {
+  const assertSanitized = (input: string, expected: string, testName: string) => {
+    const res = sanitizeSvgText(input);
+    if (res !== expected) {
+      throw new Error(`${testName} Failed: Expected '${expected}', got '${res}'`);
+    }
+  };
+
+  // Test 1: Basic alphanumeric with spaces and hyphens
+  assertSanitized("Hello World 123-456", "Hello World 123-456", "Test 1");
+
+  // Test 2: HTML script tags (XSS check)
+  assertSanitized("<script>alert('XSS')</script>", "scriptalertXSSscript", "Test 2");
+
+  // Test 3: Standard special characters (should be stripped)
+  assertSanitized("Hello! @World# & %^*()_+={}[]|\\:;\"'<>,.?/~`", "Hello World  ", "Test 3");
+
+  // Test 4: Empty string
+  assertSanitized("", "", "Test 4");
+
+  // Test 5: Unicode characters (should be stripped due to non-alphanumeric ASCII regex)
+  assertSanitized("Hello 世界!", "Hello ", "Test 5");
+
+  // Test 6: Emoji characters (should be stripped)
+  assertSanitized("Hello 🚀!", "Hello ", "Test 6");
+}
+
 try {
   runPrivacyTests();
   console.log("✓ All frontend privacy utility tests passed successfully!");
@@ -179,6 +207,8 @@ try {
   console.log("✓ All doors/IPC error service utility tests passed successfully!");
   runVaultServiceTests();
   console.log("✓ All vaults service utility tests passed successfully!");
+  runSvgSanitizerTests();
+  console.log("✓ All SVG sanitizer utility tests passed successfully!");
   process.exit(0);
 } catch (err) {
   console.error("Frontend utility self-test failed:", err);
