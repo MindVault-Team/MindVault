@@ -291,37 +291,32 @@ pub async fn execute_memory_extraction_pipeline(
         Ok(c) => c,
         Err(err) => {
             eprintln!("Failed to parse candidates JSON, logging raw response and recovering gracefully: {err}");
-            // Log raw response as a memory_agent_errors settings key
-            let conn = open_connection(&db_path)?;
+            // Reuse a single connection for logging, persisting, and querying
+            let mut conn = open_connection(&db_path)?;
             if let Err(log_err) = log_memory_agent_error(&conn, &raw) {
                 eprintln!("Failed to log memory agent error: {log_err}");
             }
-            // Return an empty changeset gracefully!
-            let changeset_id = {
-                let mut conn = open_connection(&db_path)?;
-                let tx = conn
-                    .transaction()
-                    .map_err(|err| format!("Failed to start transaction: {err}"))?;
+            // Persist an empty changeset gracefully
+            let tx = conn
+                .transaction()
+                .map_err(|err| format!("Failed to start transaction: {err}"))?;
 
-                let pending_changeset = memory_agent::PendingChangeset {
-                    session_id: "default-session".to_string(),
-                    model_used: Some(model.clone()),
-                    items: Vec::new(),
-                };
-
-                let persisted_id = memory_agent::persistence::persist_changeset(
-                    &tx,
-                    &pending_changeset,
-                    Some(&model),
-                )?;
-
-                tx.commit()
-                    .map_err(|err| format!("Failed to commit transaction: {err}"))?;
-                persisted_id
+            let pending_changeset = memory_agent::PendingChangeset {
+                session_id: "default-session".to_string(),
+                model_used: Some(model.clone()),
+                items: Vec::new(),
             };
 
-            // Retrieve the newly persisted empty changeset from SQLite
-            let conn = open_connection(&db_path)?;
+            let changeset_id = memory_agent::persistence::persist_changeset(
+                &tx,
+                &pending_changeset,
+                Some(&model),
+            )?;
+
+            tx.commit()
+                .map_err(|err| format!("Failed to commit transaction: {err}"))?;
+
+            // Retrieve the newly persisted empty changeset
             let cs = conn.query_row(
                 "SELECT id, session_id, status, item_count, accepted_count, dismissed_count, model_used, created_at, reviewed_at
                  FROM changesets
@@ -347,9 +342,10 @@ pub async fn execute_memory_extraction_pipeline(
         }
     };
 
-    // 7. Open connection synchronously and persist changeset inside a Transaction
+    // 7. Reuse a single connection for changeset build, persist, and retrieval
+    let mut conn = open_connection(&db_path)?;
+
     let changeset_id = {
-        let mut conn = open_connection(&db_path)?;
         let tx = conn
             .transaction()
             .map_err(|err| format!("Failed to start transaction: {err}"))?;
@@ -365,30 +361,27 @@ pub async fn execute_memory_extraction_pipeline(
         persisted_id
     };
 
-    // 8. Retrieve the newly persisted Changeset from SQLite
-    let cs = {
-        let conn = open_connection(&db_path)?;
-        conn.query_row(
-            "SELECT id, session_id, status, item_count, accepted_count, dismissed_count, model_used, created_at, reviewed_at
-             FROM changesets
-             WHERE id = ?1 LIMIT 1;",
-            [changeset_id],
-            |row| {
-                Ok(Changeset {
-                    id: row.get(0)?,
-                    session_id: row.get(1)?,
-                    status: row.get(2)?,
-                    item_count: row.get(3)?,
-                    accepted_count: row.get(4)?,
-                    dismissed_count: row.get(5)?,
-                    model_used: row.get(6)?,
-                    created_at: row.get(7)?,
-                    reviewed_at: row.get(8)?,
-                })
-            },
-        )
-        .map_err(|err| format!("Failed to retrieve persisted changeset: {err}"))?
-    };
+    // 8. Retrieve the newly persisted Changeset (reusing same connection)
+    let cs = conn.query_row(
+        "SELECT id, session_id, status, item_count, accepted_count, dismissed_count, model_used, created_at, reviewed_at
+         FROM changesets
+         WHERE id = ?1 LIMIT 1;",
+        [changeset_id],
+        |row| {
+            Ok(Changeset {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                status: row.get(2)?,
+                item_count: row.get(3)?,
+                accepted_count: row.get(4)?,
+                dismissed_count: row.get(5)?,
+                model_used: row.get(6)?,
+                created_at: row.get(7)?,
+                reviewed_at: row.get(8)?,
+            })
+        },
+    )
+    .map_err(|err| format!("Failed to retrieve persisted changeset: {err}"))?;
 
     Ok(cs)
 }
