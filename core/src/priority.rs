@@ -94,6 +94,7 @@ pub fn calculate_rollover(
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -179,9 +180,9 @@ mod tests {
         });
         let result = calculate_rollover(input, true);
         assert_eq!(result["session_touches"], 0);
-        let history = result["access_history"].as_array().unwrap_or_else(|| {
-            panic!("access_history missing");
-        });
+        let history = result["access_history"]
+            .as_array()
+            .expect("access_history missing");
         assert_eq!(history[0], 5);
         assert_eq!(history[1], 3);
         assert_eq!(history.len(), 4);
@@ -196,9 +197,9 @@ mod tests {
         });
         let result = calculate_rollover(input, true);
         assert_eq!(result["session_touches"], 0);
-        let history = result["access_history"].as_array().unwrap_or_else(|| {
-            panic!("access_history missing");
-        });
+        let history = result["access_history"]
+            .as_array()
+            .expect("access_history missing");
         assert_eq!(history.len(), 3, "0 should be pushed");
         assert_eq!(history[0], 0, "first entry should be 0");
         assert_eq!(history[1], 5);
@@ -225,9 +226,9 @@ mod tests {
             "access_history": history
         });
         let result = calculate_rollover(input, true);
-        let arr = result["access_history"].as_array().unwrap_or_else(|| {
-            panic!("access_history missing");
-        });
+        let arr = result["access_history"]
+            .as_array()
+            .expect("access_history missing");
         assert_eq!(arr.len(), 90);
     }
 
@@ -244,9 +245,9 @@ mod tests {
         let result = calculate_rollover(input, false);
         // session_touches is reset but history is NOT shifted
         assert_eq!(result["session_touches"], 0);
-        let history = result["access_history"].as_array().unwrap_or_else(|| {
-            panic!("access_history missing");
-        });
+        let history = result["access_history"]
+            .as_array()
+            .expect("access_history missing");
         assert_eq!(history.len(), 2, "history should be unchanged");
         assert_eq!(
             result["access_count_30active"], 8,
@@ -276,9 +277,9 @@ mod tests {
         let input = serde_json::json!({});
         let result = calculate_rollover(input, true);
         assert_eq!(result["session_touches"], 0);
-        let history = result["access_history"].as_array().unwrap_or_else(|| {
-            panic!("access_history missing");
-        });
+        let history = result["access_history"]
+            .as_array()
+            .expect("access_history missing");
         assert_eq!(history.len(), 1, "should push 0 for active vault");
         assert_eq!(history[0], 0);
     }
