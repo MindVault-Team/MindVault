@@ -10,8 +10,8 @@ import {
   type Vault,
   type VaultCreateInput,
   type VaultUpdateInput,
-} from "../ipc";
-import { unwrapIpcResult } from "./ipcResult";
+} from "../ipc.ts";
+import { unwrapIpcResult } from "./ipcResult.ts";
 
 export async function createVault(input: VaultCreateInput): Promise<Vault> {
   return unwrapIpcResult(vaultCreate(input));

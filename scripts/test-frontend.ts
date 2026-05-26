@@ -1,5 +1,7 @@
 import { runPrivacyTests } from "../ui/utils/privacy.ts";
 import { AppError, toAppError } from "../ui/services/ipcResult.ts";
+import { resolveVaultPath } from "../ui/services/vaults.ts";
+import type { Node, Vault } from "../ui/ipc.ts";
 
 function runDoorServiceTests() {
   const assertAppError = (val: unknown, expectedMessage: string, testName: string) => {
@@ -78,11 +80,105 @@ function runDoorServiceTests() {
   assertAppError(new Error(""), "Unknown Error", "Test 15");
 }
 
+function runVaultServiceTests() {
+  const assertResolvedPath = (
+    node: Partial<Node>,
+    vaults: Partial<Vault>[],
+    expected: string,
+    testName: string
+  ) => {
+    const res = resolveVaultPath(node as Node, vaults as Vault[]);
+    if (res !== expected) {
+      throw new Error(`${testName} Failed: Expected '${expected}', got '${res}'`);
+    }
+  };
+
+  // Setup mock vaults
+  const vault1: Partial<Vault> = { id: "v1", name: "Work", parentVaultId: undefined };
+  const vault2: Partial<Vault> = { id: "v2", name: "Projects", parentVaultId: "v1" };
+  const vault3 = { id: "v3", name: "MindVault", parent_vault_id: "v1" } as unknown as Vault; // snake_case mock
+  const vault4: Partial<Vault> = { id: "v4", name: "DeadEnd", parentVaultId: "nonexistent" };
+
+  // Case A.1: subVaultId set, both exist
+  assertResolvedPath(
+    { vaultId: "v1", subVaultId: "v2" },
+    [vault1, vault2],
+    "Work / Projects",
+    "resolveVaultPath Test A.1"
+  );
+
+  // Case A.2: subVaultId set, only child exists
+  assertResolvedPath(
+    { vaultId: "nonexistent", subVaultId: "v2" },
+    [vault2],
+    "Projects",
+    "resolveVaultPath Test A.2"
+  );
+
+  // Case A.3: subVaultId set, only parent exists
+  assertResolvedPath(
+    { vaultId: "v1", subVaultId: "nonexistent" },
+    [vault1],
+    "Work",
+    "resolveVaultPath Test A.3"
+  );
+
+  // Case A.4: subVaultId set, neither exists
+  assertResolvedPath(
+    { vaultId: "nonexistent", subVaultId: "nonexistent" },
+    [],
+    "Unknown Vault",
+    "resolveVaultPath Test A.4"
+  );
+
+  // Case B.1: subVaultId null, vaultId nonexistent
+  assertResolvedPath(
+    { vaultId: "nonexistent", subVaultId: null },
+    [],
+    "Unknown Vault",
+    "resolveVaultPath Test B.1"
+  );
+
+  // Case B.2: subVaultId null, vaultId exists, no parent
+  assertResolvedPath(
+    { vaultId: "v1", subVaultId: null },
+    [vault1],
+    "Work",
+    "resolveVaultPath Test B.2"
+  );
+
+  // Case B.3: subVaultId null, vaultId exists, parentVaultId exists (camelCase)
+  assertResolvedPath(
+    { vaultId: "v2", subVaultId: null },
+    [vault1, vault2],
+    "Work / Projects",
+    "resolveVaultPath Test B.3"
+  );
+
+  // Case B.4: subVaultId null, vaultId exists, parent_vault_id exists (snake_case)
+  assertResolvedPath(
+    { vaultId: "v3", subVaultId: null },
+    [vault1, vault3],
+    "Work / MindVault",
+    "resolveVaultPath Test B.4"
+  );
+
+  // Case B.5: subVaultId null, vaultId exists, parentVaultId nonexistent in list
+  assertResolvedPath(
+    { vaultId: "v4", subVaultId: null },
+    [vault4],
+    "DeadEnd",
+    "resolveVaultPath Test B.5"
+  );
+}
+
 try {
   runPrivacyTests();
   console.log("✓ All frontend privacy utility tests passed successfully!");
   runDoorServiceTests();
   console.log("✓ All doors/IPC error service utility tests passed successfully!");
+  runVaultServiceTests();
+  console.log("✓ All vaults service utility tests passed successfully!");
   process.exit(0);
 } catch (err) {
   console.error("Frontend utility self-test failed:", err);
