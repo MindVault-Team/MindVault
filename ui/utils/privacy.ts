@@ -175,4 +175,46 @@ export function runPrivacyTests() {
   if (tierSelf !== "local_only") {
     throw new Error(`Privacy Test 3 Failed: Expected local_only, got ${tierSelf}`);
   }
+
+  // Test 4: getVaultDisplayPath - Standard hierarchy
+  const displayPath1 = getVaultDisplayPath("vault_locked", mockVaults);
+  if (displayPath1 !== "Local Vault / Locked Vault") {
+    throw new Error(
+      `Privacy Test 4 Failed: Expected 'Local Vault / Locked Vault', got '${displayPath1}'`
+    );
+  }
+
+  // Test 5: getVaultDisplayPath - Redacted cascade (locked vs unlocked)
+  const mockRedacted: Record<string, VaultHierarchyLike> = {
+    vault_p: { name: "Secret", privacyTier: "redacted" },
+    vault_c: { name: "Plan", privacyTier: "open", parentVaultId: "vault_p" },
+  };
+  const displayPathLocked = getVaultDisplayPath("vault_c", mockRedacted, false);
+  const displayPathUnlocked = getVaultDisplayPath("vault_c", mockRedacted, true);
+  if (displayPathLocked !== "[REDACTED] / [REDACTED]") {
+    throw new Error(
+      `Privacy Test 5a Failed: Expected '[REDACTED] / [REDACTED]', got '${displayPathLocked}'`
+    );
+  }
+  if (displayPathUnlocked !== "Secret / Plan") {
+    throw new Error(
+      `Privacy Test 5b Failed: Expected 'Secret / Plan', got '${displayPathUnlocked}'`
+    );
+  }
+
+  // Test 6: getVaultDisplayPath - Cycle breaking
+  const displayPathCycle = getVaultDisplayPath("vault_b", cyclicVaults);
+  if (displayPathCycle !== "Vault A / Vault B") {
+    throw new Error(
+      `Privacy Test 6 Failed: Expected 'Vault A / Vault B', got '${displayPathCycle}'`
+    );
+  }
+
+  // Test 7: getVaultDisplayPath - Nonexistent vault
+  const displayPathNonexistent = getVaultDisplayPath("nonexistent", mockVaults);
+  if (displayPathNonexistent !== "Unknown Vault") {
+    throw new Error(
+      `Privacy Test 7 Failed: Expected 'Unknown Vault', got '${displayPathNonexistent}'`
+    );
+  }
 }
