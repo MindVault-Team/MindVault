@@ -1329,10 +1329,15 @@ export default function LatexBlock({ code }: LatexBlockProps) {
       frameDoc.body.appendChild(clonedContent);
 
       printFrame.contentWindow?.focus();
+
+      // Safely clean up and remove the iframe after printing is completed or cancelled
+      printFrame.contentWindow?.addEventListener("afterprint", () => {
+        document.body.removeChild(printFrame);
+      });
+
       // Allow KaTeX fonts to load before opening print dialog
       setTimeout(() => {
         printFrame.contentWindow?.print();
-        document.body.removeChild(printFrame);
       }, 500);
     }
   };
