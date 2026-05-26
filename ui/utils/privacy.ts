@@ -133,3 +133,46 @@ export function getVaultEffectivePrivacy(
   memo[vaultId] = effectiveTier;
   return effectiveTier;
 }
+
+/**
+ * Self-test suite to verify privacy hierarchy calculations and cycle prevention.
+ */
+export function runPrivacyTests() {
+  const mockVaults: Record<string, VaultHierarchyLike> = {
+    vault_open: { name: "Open Vault", privacyTier: "open" },
+    vault_local: { name: "Local Vault", privacyTier: "local_only" },
+    vault_locked: { name: "Locked Vault", privacyTier: "locked", parentVaultId: "vault_local" },
+    vault_redacted: { name: "Redacted Vault", privacyTier: "redacted" },
+  };
+
+  // Test 1: Simple hierarchy
+  const tier = getVaultEffectivePrivacy("vault_locked", mockVaults);
+  if (tier !== "locked") {
+    throw new Error(`Privacy Test 1 Failed: Expected locked, got ${tier}`);
+  }
+
+  // Test 2: Cycle detection (Self-referencing cycle A -> B -> A)
+  const cyclicVaults: Record<string, VaultHierarchyLike> = {
+    vault_a: { name: "Vault A", privacyTier: "open", parentVaultId: "vault_b" },
+    vault_b: { name: "Vault B", privacyTier: "locked", parentVaultId: "vault_a" },
+  };
+
+  // This should not infinite loop and should resolve vault_a to locked (from vault_b)
+  const tierA = getVaultEffectivePrivacy("vault_a", cyclicVaults);
+  const tierB = getVaultEffectivePrivacy("vault_b", cyclicVaults);
+  if (tierA !== "locked") {
+    throw new Error(`Privacy Test 2 Failed: Expected locked for A, got ${tierA}`);
+  }
+  if (tierB !== "locked") {
+    throw new Error(`Privacy Test 2 Failed: Expected locked for B, got ${tierB}`);
+  }
+
+  // Test 3: Self-referencing (A -> A)
+  const selfRefVaults: Record<string, VaultHierarchyLike> = {
+    vault_self: { name: "Self Vault", privacyTier: "local_only", parentVaultId: "vault_self" },
+  };
+  const tierSelf = getVaultEffectivePrivacy("vault_self", selfRefVaults);
+  if (tierSelf !== "local_only") {
+    throw new Error(`Privacy Test 3 Failed: Expected local_only, got ${tierSelf}`);
+  }
+}

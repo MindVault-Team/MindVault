@@ -28,6 +28,16 @@ document.addEventListener("click", (event) => {
   }
 });
 
+if (import.meta.env.DEV) {
+  import("./utils/privacy").then(({ runPrivacyTests }) => {
+    try {
+      runPrivacyTests();
+    } catch (err) {
+      console.error("Privacy utility self-test failed:", err);
+    }
+  });
+}
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <App />
