@@ -57,12 +57,12 @@ export default function NodeEditorDetail({
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const [prevValue, setPrevValue] = useState(value);
-  if (value !== prevValue) {
-    setPrevValue(value);
+  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
     setLocalValue(value);
     setDebouncedPreviewValue(value);
-  }
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [value]);
 
   // Debounce the heavy markdown preview translation to prevent visual input lags while typing
   useEffect(() => {
