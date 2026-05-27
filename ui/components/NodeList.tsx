@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Node, Vault } from "../ipc";
 import { createNode, getNodes } from "../services/nodes";
@@ -192,7 +192,10 @@ function NodeList({
     ? `← Back to ${getVaultDisplayLabel(selectedVault.parentVaultId, vaultById, isRedactedUnlocked)}`
     : "← Back to Vaults";
 
-  const normalizedQuery = searchQuery.trim().toLowerCase();
+  // Optimization: Defer the search query to keep typing responsive.
+  // The filtering logic inside useMemo can be expensive for large numbers of nodes.
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const normalizedQuery = deferredSearchQuery.trim().toLowerCase();
 
   const filteredNodes = useMemo(() => {
     const scoped = selectedVaultNodes;

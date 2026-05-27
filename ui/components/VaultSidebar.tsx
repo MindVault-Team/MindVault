@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Node, Vault } from "../ipc";
 import { getAllNodes } from "../services/nodes";
@@ -657,7 +657,10 @@ function VaultSidebar({
     }));
   }
 
-  const normalizedQuery = searchQuery.trim().toLowerCase();
+  // Optimization: Defer the search query to keep typing responsive.
+  // The filtering logic inside useMemo can be expensive for large numbers of nodes.
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const normalizedQuery = deferredSearchQuery.trim().toLowerCase();
   const isSearching = normalizedQuery.length > 0;
 
   // ---------------------------------------------------------------------------
