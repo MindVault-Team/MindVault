@@ -172,6 +172,12 @@ export function parseToRpn(tokens: string[]): string[] {
         outputQueue.push(operatorStack.pop()!);
       }
     }
+    // Unrecognized token
+    else {
+      throw new Error(
+        `Unknown token: '${token}'. Supported variables: x, pi, e. Supported functions: ${Array.from(functions).join(", ")}.`
+      );
+    }
   }
 
   while (operatorStack.length > 0) {
