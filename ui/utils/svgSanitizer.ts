@@ -37,11 +37,12 @@ export function sanitizeSvg(svgMarkup: string): string {
       for (const attr of attrs) {
         const attrName = attr.name.toLowerCase();
         const attrVal = attr.value.toLowerCase();
+        const valClean = attrVal.trim().replace(/\s/g, "");
         if (
           attrName.startsWith("on") ||
-          attrVal.includes("javascript:") ||
-          (attrName === "href" && attrVal.startsWith("javascript:")) ||
-          (attrName === "xlink:href" && attrVal.startsWith("javascript:"))
+          valClean.includes("javascript:") ||
+          valClean.includes("data:") ||
+          valClean.includes("vbscript:")
         ) {
           el.removeAttribute(attr.name);
         }
