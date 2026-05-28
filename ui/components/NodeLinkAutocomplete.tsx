@@ -103,6 +103,9 @@ export default function NodeLinkAutocomplete({
           key={node.id}
           type="button"
           className={`wikilink-option ${index === selectedIndex ? "selected" : ""}`}
+          onMouseDown={(e) => {
+            e.preventDefault();
+          }}
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();

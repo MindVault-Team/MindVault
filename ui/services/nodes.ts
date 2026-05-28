@@ -16,7 +16,14 @@ import {
 } from "../ipc";
 import { unwrapIpcResult } from "./ipcResult";
 
+let cachedNodes: Node[] | null = null;
+
+export function clearNodesCache(): void {
+  cachedNodes = null;
+}
+
 export async function createNode(input: NodeCreateInput): Promise<Node> {
+  clearNodesCache();
   return unwrapIpcResult(nodeCreate(input));
 }
 
@@ -25,7 +32,12 @@ export async function getNode(nodeId: string): Promise<Node | null> {
 }
 
 export async function getNodes(): Promise<Node[]> {
-  return unwrapIpcResult(nodeList());
+  if (cachedNodes) {
+    return cachedNodes;
+  }
+  const nodes = await unwrapIpcResult(nodeList());
+  cachedNodes = nodes;
+  return nodes;
 }
 
 export async function getAllNodes(): Promise<Node[]> {
@@ -33,10 +45,12 @@ export async function getAllNodes(): Promise<Node[]> {
 }
 
 export async function updateNode(input: NodeUpdateInput): Promise<Node> {
+  clearNodesCache();
   return unwrapIpcResult(nodeUpdate(input));
 }
 
 export async function deleteNode(nodeId: string): Promise<boolean> {
+  clearNodesCache();
   return unwrapIpcResult(nodeDelete(nodeId));
 }
 
@@ -45,10 +59,12 @@ export async function touchNode(nodeId: string): Promise<boolean> {
 }
 
 export async function refreshAllPriorityScores(): Promise<number> {
+  clearNodesCache();
   return unwrapIpcResult(priorityRefreshAll());
 }
 
 export async function optimizeAllPriorityProfiles(): Promise<number> {
+  clearNodesCache();
   return unwrapIpcResult(priorityOptimizeAll());
 }
 
