@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use std::sync::OnceLock;
 
 use rusqlite::Connection;
-use serde_json::Value;
 use tiktoken_rs::CoreBPE;
 
 use crate::privacy::{generate_pointer_stub, get_effective_privacy};
@@ -72,13 +71,6 @@ struct AssemblerNode {
     node_privacy_tier: Option<String>,
     sub_vault_privacy_tier: Option<String>,
     vault_privacy_tier: Option<String>,
-    score: f64,
-}
-
-fn parse_score(priority_json: &str) -> f64 {
-    let parsed: Value =
-        serde_json::from_str(priority_json).unwrap_or_else(|_| serde_json::json!({}));
-    parsed.get("score").and_then(|v| v.as_f64()).unwrap_or(0.1)
 }
 
 fn escape_xml_attr(value: &str) -> String {
@@ -146,9 +138,6 @@ fn fetch_requested_nodes(
             if !seen_ids.insert(id.clone()) {
                 continue;
             }
-            let priority_json: String = row.get(6).map_err(|err| {
-                format!("Failed decoding priority field for node {id} in assembler: {err}")
-            })?;
             nodes.push(AssemblerNode {
                 id,
                 title: row
@@ -169,12 +158,23 @@ fn fetch_requested_nodes(
                 vault_privacy_tier: row.get(8).map_err(|err| {
                     format!("Failed decoding vault privacy field in assembler: {err}")
                 })?,
-                score: parse_score(&priority_json),
             });
         }
     }
 
-    Ok(nodes)
+    let mut nodes_map: std::collections::HashMap<String, AssemblerNode> = nodes
+        .into_iter()
+        .map(|node| (node.id.clone(), node))
+        .collect();
+
+    let mut sorted_nodes = Vec::with_capacity(node_ids.len());
+    for id in node_ids {
+        if let Some(node) = nodes_map.remove(id) {
+            sorted_nodes.push(node);
+        }
+    }
+
+    Ok(sorted_nodes)
 }
 
 pub fn build_context(
@@ -182,8 +182,7 @@ pub fn build_context(
     node_ids: Vec<String>,
     config: AssemblerConfig,
 ) -> Result<String, crate::AppError> {
-    let mut nodes = fetch_requested_nodes(db, &node_ids)?;
-    nodes.sort_by(|a, b| b.score.total_cmp(&a.score));
+    let nodes = fetch_requested_nodes(db, &node_ids)?;
 
     let mut assembled = String::new();
 
@@ -281,6 +280,7 @@ pub fn build_context(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::{
         build_context, count_tokens, fetch_requested_nodes, trim_tail_with_attention_sink,
@@ -579,5 +579,37 @@ mod tests {
         assert!(nodes
             .iter()
             .any(|node| node.id == format!("node_extra_{}", SQLITE_IN_CLAUSE_BATCH_SIZE + 24)));
+    }
+
+    #[test]
+    fn test_assembler_preserves_relevance_ordering() {
+        let conn = setup_in_memory_db();
+        // Insert nodes with different priority values to make sure priority sorting
+        // is overridden by relevance ordering
+        let node_ids = vec!["node_locked".to_string(), "node_local_only".to_string()];
+
+        let nodes = fetch_requested_nodes(&conn, &node_ids).unwrap();
+        assert_eq!(nodes.len(), 2);
+        assert_eq!(nodes[0].id, "node_locked");
+        assert_eq!(nodes[1].id, "node_local_only");
+
+        let context = build_context(
+            &conn,
+            node_ids,
+            AssemblerConfig {
+                scope: "local".to_string(),
+                max_tokens: 4000,
+                is_unlocked: true,
+            },
+        )
+        .unwrap();
+
+        // The assembled context should contain Locked Node document before Local Only Node document
+        let pos_locked = context.find("title=\"Locked Node\"").unwrap();
+        let pos_local = context.find("title=\"Local Only Node\"").unwrap();
+        assert!(
+            pos_locked < pos_local,
+            "Locked Node should come before Local Only Node to preserve relevance ordering!"
+        );
     }
 }
