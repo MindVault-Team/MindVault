@@ -188,7 +188,7 @@ pub enum SimilarityClass {
 }
 
 pub fn tokenize(text: &str) -> HashSet<String> {
-    text.split(|c: char| !c.is_alphanumeric())
+    text.split(|c: char| !c.is_alphanumeric() && c != '\'')
         .filter(|word| !word.is_empty())
         .map(|word| word.to_lowercase())
         .filter(|word| STOPWORDS.binary_search(&word.as_str()).is_err())
@@ -280,6 +280,12 @@ mod tests {
         // Expected Jaccard -> 1.0
         let score = compute_text_similarity("about a the learning", "learning");
         assert!((score - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_contractions_stay_whole_before_stopword_filtering() {
+        let tokens = tokenize("don't isn't i've");
+        assert!(tokens.is_empty());
     }
 
     #[test]
