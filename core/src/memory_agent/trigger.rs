@@ -52,7 +52,7 @@ pub fn should_extract(conn: &Connection, session_id: &str) -> Result<bool, Strin
 
     // 3. Compute message count difference
     let last_count = if current_message_count < last_extract_message_count {
-        0
+        current_message_count
     } else {
         last_extract_message_count
     };
@@ -187,6 +187,53 @@ mod tests {
 
         // 9. Now should be true (both count diff >= 6 and debounce window passed)
         assert!(should_extract(&conn, session_id)?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_message_deletion_does_not_trigger_extraction() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let conn = setup_test_db();
+        let session_id = "default-session";
+
+        // 1. Add 10 messages and mark extraction complete
+        add_test_messages(&conn, 10);
+        mark_extraction_complete(&conn, 10)?;
+
+        // 2. Force timestamp backward to bypass debounce
+        let current_timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
+        set_setting_int(
+            &conn,
+            "memory_agent_last_extract_timestamp",
+            current_timestamp - 300,
+        )?;
+
+        // 3. Simulate user deleting messages: remove 5 messages so only 5 remain
+        conn.execute(
+            "DELETE FROM session_messages WHERE id IN (
+                SELECT id FROM session_messages WHERE session_id = ?1 LIMIT 5
+            );",
+            params![session_id],
+        )?;
+
+        // 4. Verify count dropped below last_extract_message_count
+        let remaining: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM session_messages WHERE session_id = ?1;",
+            [session_id],
+            |row| row.get(0),
+        )?;
+        assert!(
+            remaining < 10,
+            "Expected fewer than 10 messages after deletion"
+        );
+
+        // 5. Should NOT trigger extraction even though debounce has passed,
+        //    because no new messages were added.
+        assert!(
+            !should_extract(&conn, session_id)?,
+            "Deleting messages should not trigger extraction"
+        );
 
         Ok(())
     }
