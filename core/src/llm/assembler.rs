@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::OnceLock;
 
 use rusqlite::Connection;
@@ -8,6 +9,7 @@ use crate::privacy::{generate_pointer_stub, get_effective_privacy};
 
 const ATTENTION_SINK_TOKENS: usize = 50;
 const FALLBACK_CHARS_PER_TOKEN_EST: usize = 4;
+const SQLITE_IN_CLAUSE_BATCH_SIZE: usize = 900;
 
 fn cl100k_bpe() -> &'static CoreBPE {
     static BPE: OnceLock<CoreBPE> = OnceLock::new();
@@ -96,75 +98,80 @@ fn fetch_requested_nodes(
         return Ok(Vec::new());
     }
 
-    let placeholders = vec!["?"; node_ids.len()].join(", ");
-    let query_str = format!(
-        "SELECT n.id,
-                n.title,
-                n.summary,
-                COALESCE(n.detail, '') AS detail,
-                n.privacy_tier,
-                n.vault_id,
-                n.priority,
-                sv.privacy_tier,
-                v.privacy_tier
-         FROM nodes n
-         LEFT JOIN sub_vaults sv
-           ON sv.id = n.sub_vault_id
-          AND sv.deleted_at IS NULL
-         LEFT JOIN vaults v
-           ON v.id = n.vault_id
-          AND v.deleted_at IS NULL
-         WHERE n.id IN ({placeholders})
-           AND n.deleted_at IS NULL
-           AND n.is_archived = 0;"
-    );
-
-    let mut statement = db
-        .prepare(&query_str)
-        .map_err(|err| format!("Failed preparing assembler query: {err}"))?;
-
-    let params: Vec<&dyn rusqlite::ToSql> = node_ids
-        .iter()
-        .map(|id| id as &dyn rusqlite::ToSql)
-        .collect();
-
-    let mut rows = statement
-        .query(rusqlite::params_from_iter(params))
-        .map_err(|err| format!("Failed querying nodes for assembler: {err}"))?;
-
     let mut nodes = Vec::new();
-    while let Some(row) = rows
-        .next()
-        .map_err(|err| format!("Failed reading assembler row: {err}"))?
-    {
-        let id: String = row
-            .get(0)
-            .map_err(|err| format!("Failed decoding id field in assembler: {err}"))?;
-        let priority_json: String = row.get(6).map_err(|err| {
-            format!("Failed decoding priority field for node {id} in assembler: {err}")
-        })?;
-        nodes.push(AssemblerNode {
-            id,
-            title: row
-                .get(1)
-                .map_err(|err| format!("Failed decoding title field in assembler: {err}"))?,
-            summary: row
-                .get(2)
-                .map_err(|err| format!("Failed decoding summary field in assembler: {err}"))?,
-            detail: row
-                .get(3)
-                .map_err(|err| format!("Failed decoding detail field in assembler: {err}"))?,
-            node_privacy_tier: row
-                .get(4)
-                .map_err(|err| format!("Failed decoding node privacy field in assembler: {err}"))?,
-            sub_vault_privacy_tier: row.get(7).map_err(|err| {
-                format!("Failed decoding sub-vault privacy field in assembler: {err}")
-            })?,
-            vault_privacy_tier: row.get(8).map_err(|err| {
-                format!("Failed decoding vault privacy field in assembler: {err}")
-            })?,
-            score: parse_score(&priority_json),
-        });
+    let mut seen_ids = HashSet::new();
+
+    for chunk in node_ids.chunks(SQLITE_IN_CLAUSE_BATCH_SIZE) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let query_str = format!(
+            "SELECT n.id,
+                    n.title,
+                    n.summary,
+                    COALESCE(n.detail, '') AS detail,
+                    n.privacy_tier,
+                    n.vault_id,
+                    n.priority,
+                    sv.privacy_tier,
+                    v.privacy_tier
+             FROM nodes n
+             LEFT JOIN sub_vaults sv
+               ON sv.id = n.sub_vault_id
+              AND sv.deleted_at IS NULL
+             LEFT JOIN vaults v
+               ON v.id = n.vault_id
+              AND v.deleted_at IS NULL
+             WHERE n.id IN ({placeholders})
+               AND n.deleted_at IS NULL
+               AND n.is_archived = 0;"
+        );
+
+        let mut statement = db
+            .prepare(&query_str)
+            .map_err(|err| format!("Failed preparing assembler query: {err}"))?;
+
+        let params: Vec<&dyn rusqlite::ToSql> =
+            chunk.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+
+        let mut rows = statement
+            .query(rusqlite::params_from_iter(params))
+            .map_err(|err| format!("Failed querying nodes for assembler: {err}"))?;
+
+        while let Some(row) = rows
+            .next()
+            .map_err(|err| format!("Failed reading assembler row: {err}"))?
+        {
+            let id: String = row
+                .get(0)
+                .map_err(|err| format!("Failed decoding id field in assembler: {err}"))?;
+            if !seen_ids.insert(id.clone()) {
+                continue;
+            }
+            let priority_json: String = row.get(6).map_err(|err| {
+                format!("Failed decoding priority field for node {id} in assembler: {err}")
+            })?;
+            nodes.push(AssemblerNode {
+                id,
+                title: row
+                    .get(1)
+                    .map_err(|err| format!("Failed decoding title field in assembler: {err}"))?,
+                summary: row
+                    .get(2)
+                    .map_err(|err| format!("Failed decoding summary field in assembler: {err}"))?,
+                detail: row
+                    .get(3)
+                    .map_err(|err| format!("Failed decoding detail field in assembler: {err}"))?,
+                node_privacy_tier: row.get(4).map_err(|err| {
+                    format!("Failed decoding node privacy field in assembler: {err}")
+                })?,
+                sub_vault_privacy_tier: row.get(7).map_err(|err| {
+                    format!("Failed decoding sub-vault privacy field in assembler: {err}")
+                })?,
+                vault_privacy_tier: row.get(8).map_err(|err| {
+                    format!("Failed decoding vault privacy field in assembler: {err}")
+                })?,
+                score: parse_score(&priority_json),
+            });
+        }
     }
 
     Ok(nodes)
@@ -276,8 +283,8 @@ pub fn build_context(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_context, count_tokens, trim_tail_with_attention_sink, AssemblerConfig,
-        ATTENTION_SINK_TOKENS,
+        build_context, count_tokens, fetch_requested_nodes, trim_tail_with_attention_sink,
+        AssemblerConfig, ATTENTION_SINK_TOKENS, SQLITE_IN_CLAUSE_BATCH_SIZE,
     };
     use rusqlite::Connection;
 
@@ -527,5 +534,50 @@ mod tests {
 
         let direct = trim_tail_with_attention_sink(&full, 120);
         assert_eq!(direct, trimmed);
+    }
+
+    #[test]
+    fn fetch_requested_nodes_chunks_large_in_lists() {
+        let conn = setup_in_memory_db();
+
+        for index in 0..(SQLITE_IN_CLAUSE_BATCH_SIZE + 25) {
+            let node_id = format!("node_extra_{index}");
+            let title = format!("Extra Node {index}");
+            let summary = format!("Extra summary {index}");
+            let detail = format!("Extra detail {index}");
+            let priority = format!("{{\"score\":{}}}", index as f64 / 1000.0);
+            if let Err(err) = conn.execute(
+                "INSERT INTO nodes (
+                    id, vault_id, sub_vault_id, title, summary, detail, privacy_tier, priority, is_archived, deleted_at
+                ) VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, 0, NULL);",
+                [
+                    node_id.as_str(),
+                    "vault_a",
+                    title.as_str(),
+                    summary.as_str(),
+                    detail.as_str(),
+                    "open",
+                    priority.as_str(),
+                ],
+            ) {
+                panic!("failed inserting extra node for assembler batching test: {err}");
+            }
+        }
+
+        let mut node_ids = Vec::new();
+        for index in 0..(SQLITE_IN_CLAUSE_BATCH_SIZE + 25) {
+            node_ids.push(format!("node_extra_{index}"));
+        }
+
+        let nodes = match fetch_requested_nodes(&conn, &node_ids) {
+            Ok(value) => value,
+            Err(err) => panic!("batched fetch_requested_nodes failed: {err}"),
+        };
+
+        assert_eq!(nodes.len(), SQLITE_IN_CLAUSE_BATCH_SIZE + 25);
+        assert!(nodes.iter().any(|node| node.id == "node_extra_0"));
+        assert!(nodes
+            .iter()
+            .any(|node| node.id == format!("node_extra_{}", SQLITE_IN_CLAUSE_BATCH_SIZE + 24)));
     }
 }
