@@ -300,6 +300,23 @@ function segmentizeBlock(text: string): SizedSegment[] {
   return [{ text, sizeClass: null }];
 }
 
+function findUnescapedChar(text: string, charToFind: string, startIdx: number = 0): number {
+  for (let i = startIdx; i < text.length; i++) {
+    if (text[i] === charToFind) {
+      let backslashCount = 0;
+      let j = i - 1;
+      while (j >= 0 && text[j] === "\\") {
+        backslashCount++;
+        j--;
+      }
+      if (backslashCount % 2 === 0) {
+        return i;
+      }
+    }
+  }
+  return -1;
+}
+
 // ----------------------------------------------------------------------
 // Custom highly robust parser to translate inline macros and math
 // ($...$) recursively into structured React elements.
@@ -312,7 +329,7 @@ function renderInlineText(text: string): React.ReactNode[] {
 
   while (currentText.length > 0) {
     // 1. Find inline math trigger '$'
-    const dollarIdx = currentText.indexOf("$");
+    const dollarIdx = findUnescapedChar(currentText, "$");
 
     // 2. Find styling macros
     const macros = [
@@ -356,7 +373,7 @@ function renderInlineText(text: string): React.ReactNode[] {
         result.push(cleanEscapedChars(currentText.substring(0, dollarIdx)));
       }
 
-      const nextDollarIdx = currentText.indexOf("$", dollarIdx + 1);
+      const nextDollarIdx = findUnescapedChar(currentText, "$", dollarIdx + 1);
       if (nextDollarIdx === -1) {
         result.push(cleanEscapedChars(currentText.substring(dollarIdx)));
         break;

@@ -577,6 +577,53 @@ function runMathParserTests() {
   }
 }
 
+function runLatexBlockTests() {
+  function findUnescapedChar(text: string, charToFind: string, startIdx: number = 0): number {
+    for (let i = startIdx; i < text.length; i++) {
+      if (text[i] === charToFind) {
+        let backslashCount = 0;
+        let j = i - 1;
+        while (j >= 0 && text[j] === "\\") {
+          backslashCount++;
+          j--;
+        }
+        if (backslashCount % 2 === 0) {
+          return i;
+        }
+      }
+    }
+    return -1;
+  }
+
+  // Test 1: findUnescapedChar finds first unescaped dollar
+  const text1 = "Hello $x$ and $y$";
+  const idx1 = findUnescapedChar(text1, "$");
+  if (idx1 !== 6) {
+    throw new Error(`LatexBlock Test 1 Failed: Expected index 6, got ${idx1}`);
+  }
+
+  // Test 2: findUnescapedChar ignores escaped dollar
+  const text2 = "Price is \\$100 and $x$";
+  const idx2 = findUnescapedChar(text2, "$");
+  if (idx2 !== 19) {
+    throw new Error(`LatexBlock Test 2 Failed: Expected index 19, got ${idx2}`);
+  }
+
+  // Test 3: findUnescapedChar handles escaped dollar followed by escaped dollar
+  const text3 = "A \\$ and B \\$ and C $math$";
+  const idx3 = findUnescapedChar(text3, "$");
+  if (idx3 !== 20) {
+    throw new Error(`LatexBlock Test 3 Failed: Expected index 20, got ${idx3}`);
+  }
+
+  // Test 4: findUnescapedChar returns -1 if all are escaped
+  const text4 = "Only escaped \\$ here.";
+  const idx4 = findUnescapedChar(text4, "$");
+  if (idx4 !== -1) {
+    throw new Error(`LatexBlock Test 4 Failed: Expected index -1, got ${idx4}`);
+  }
+}
+
 try {
   runPrivacyTests();
   console.log("✓ All frontend privacy utility tests passed successfully!");
@@ -596,6 +643,8 @@ try {
   console.log("✓ All settings utility tests passed successfully!");
   runMathParserTests();
   console.log("✓ All mathematical expression parser utility tests passed successfully!");
+  runLatexBlockTests();
+  console.log("✓ All LaTeX block unescaped character utility tests passed successfully!");
   process.exit(0);
 } catch (err) {
   console.error("Frontend utility self-test failed:", err);
