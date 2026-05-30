@@ -223,6 +223,42 @@ pub fn list_changeset_items(
     Ok(list)
 }
 
+/// Lists all resolved changesets (status IN ('accepted', 'dismissed', 'partial')) ordered by reviewed time descending.
+pub fn list_resolved_changesets(
+    conn: &Connection,
+) -> Result<Vec<crate::ipc_types::Changeset>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, session_id, status, item_count, accepted_count, dismissed_count, model_used, created_at, reviewed_at
+             FROM changesets
+             WHERE status IN ('accepted', 'dismissed', 'partial')
+             ORDER BY reviewed_at DESC;",
+        )
+        .map_err(|err| format!("Failed to prepare list resolved changesets query: {err}"))?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(crate::ipc_types::Changeset {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                status: row.get(2)?,
+                item_count: row.get(3)?,
+                accepted_count: row.get(4)?,
+                dismissed_count: row.get(5)?,
+                model_used: row.get(6)?,
+                created_at: row.get(7)?,
+                reviewed_at: row.get(8)?,
+            })
+        })
+        .map_err(|err| format!("Failed to execute list resolved changesets query: {err}"))?;
+
+    let mut list = Vec::new();
+    for r in rows {
+        list.push(r.map_err(|e| format!("Failed decoding changeset row: {e}"))?);
+    }
+    Ok(list)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

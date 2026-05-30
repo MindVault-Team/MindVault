@@ -617,6 +617,12 @@ fn changeset_list_items(
 }
 
 #[tauri::command]
+fn changeset_list_resolved(state: tauri::State<'_, AppState>) -> Result<Vec<Changeset>, String> {
+    let conn = open_connection(&state.db_path)?;
+    memory_agent::persistence::list_resolved_changesets(&conn)
+}
+
+#[tauri::command]
 fn changeset_commit(
     input: ipc_types::ChangesetCommitInput,
     state: tauri::State<'_, AppState>,
@@ -3439,7 +3445,8 @@ pub fn run() {
             changeset_count_pending,
             changeset_list_pending,
             changeset_list_items,
-            changeset_commit
+            changeset_commit,
+            changeset_list_resolved
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {

@@ -322,3 +322,9 @@ export function changesetCommit(input: ChangesetCommitInput) {
     .then((ok) => ({ ok }) as IpcResult<boolean>)
     .catch((error) => ({ err: String(error) }) as IpcResult<boolean>);
 }
+
+export function changesetListResolved() {
+  return invoke<Changeset[]>("changeset_list_resolved")
+    .then((ok) => ({ ok }) as IpcResult<Changeset[]>)
+    .catch((error) => ({ err: String(error) }) as IpcResult<Changeset[]>);
+}
