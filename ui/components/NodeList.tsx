@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
+import { useEffect, useMemo, useRef, useState, useDeferredValue, useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { Node, Vault } from "../ipc";
 import { createNode, getNodes } from "../services/nodes";
@@ -71,7 +71,7 @@ function NodeList({
   const [createModalPrivacyTier, setCreateModalPrivacyTier] = useState("open");
   const [createModalError, setCreateModalError] = useState("");
 
-  async function loadNodes() {
+  const loadNodes = useCallback(async () => {
     try {
       const data = await getNodes(isRedactedUnlocked);
       setNodes(data);
@@ -83,9 +83,9 @@ function NodeList({
       }
       setError("Failed to load nodes.");
     }
-  }
+  }, [isRedactedUnlocked]);
 
-  async function loadVaults() {
+  const loadVaults = useCallback(async () => {
     try {
       const data = await listVaults();
       setVaults(data);
@@ -96,14 +96,14 @@ function NodeList({
         setError("Failed to load vault context.");
       }
     }
-  }
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
       void loadNodes();
     }, 0);
     return () => clearTimeout(timer);
-  }, [refreshKey, isRedactedUnlocked]);
+  }, [refreshKey, isRedactedUnlocked, loadNodes]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -112,7 +112,7 @@ function NodeList({
       })();
     }, 0);
     return () => clearTimeout(timer);
-  }, [refreshKey, isRedactedUnlocked]);
+  }, [refreshKey, isRedactedUnlocked, loadVaults]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

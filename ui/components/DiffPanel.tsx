@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   listPendingChangesets,
   listResolvedChangesets,
@@ -26,6 +26,7 @@ export default function DiffPanel({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [changesets, setChangesets] = useState<Changeset[]>([]);
+  const [changesetNames, setChangesetNames] = useState<Record<string, string>>({});
   const [items, setItems] = useState<ChangesetItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -261,7 +262,7 @@ export default function DiffPanel({
   };
 
   // Helper to extract item summary title
-  const getItemTitle = (item: ChangesetItem) => {
+  const getItemTitle = useCallback((item: ChangesetItem) => {
     const data = parseJSON(item.proposedData);
     if (
       item.itemType.toLowerCase() === "repoint_door" ||
@@ -270,7 +271,49 @@ export default function DiffPanel({
       return `Repoint door #${item.doorId || "unknown"}`;
     }
     return data.title || data.summary || `Proposal #${item.id.slice(0, 8)}`;
-  };
+  }, []);
+
+  // Prefetch first item of changesets to build friendly human-readable names
+  useEffect(() => {
+    const active = true;
+    const fetchFriendlyNames = async () => {
+      const names: Record<string, string> = {};
+      for (const cs of changesets) {
+        try {
+          const itemsList = await listChangesetItems(cs.id);
+          if (itemsList.length > 0) {
+            // Find content proposals first (ADD, UPDATE, MERGE)
+            const contentItem = itemsList.find(
+              (i) =>
+                i.itemType.toLowerCase() === "add" ||
+                i.itemType.toLowerCase() === "update" ||
+                i.itemType.toLowerCase() === "merge"
+            );
+            const primaryItem = contentItem || itemsList[0];
+            const primaryTitle = getItemTitle(primaryItem);
+
+            if (itemsList.length > 1) {
+              names[cs.id] =
+                `${primaryTitle} & ${itemsList.length - 1} other${itemsList.length - 1 > 1 ? "s" : ""}`;
+            } else {
+              names[cs.id] = primaryTitle;
+            }
+          } else {
+            names[cs.id] = `Empty Changeset #${cs.id.slice(0, 8)}`;
+          }
+        } catch (err) {
+          console.error("Failed to load items for changeset friendly name:", err);
+          names[cs.id] = `Changeset #${cs.id.slice(0, 8)}`;
+        }
+      }
+      if (active) {
+        setChangesetNames(names);
+      }
+    };
+    if (changesets.length > 0) {
+      void fetchFriendlyNames();
+    }
+  }, [changesets, getItemTitle]);
 
   // Filter Changesets
   const filteredChangesets = changesets.filter((cs) => {
@@ -472,9 +515,8 @@ export default function DiffPanel({
                         strokeLinecap="round"
                         strokeLinejoin="round"
                       >
-                        <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
-                        <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
-                        <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
+                        <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+                        <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
                       </svg>
                       <span>No changesets found</span>
                     </div>
@@ -486,12 +528,27 @@ export default function DiffPanel({
                         onClick={() => onSelectChangeset(cs.id)}
                       >
                         <div className="changeset-card-header">
-                          <span className="changeset-card-id">Changeset #{cs.id.slice(0, 8)}</span>
+                          <span
+                            className="changeset-card-id"
+                            style={{ fontSize: "0.95rem", fontWeight: "700" }}
+                          >
+                            {changesetNames[cs.id] || `Changeset #${cs.id.slice(0, 8)}`}
+                          </span>
                           <span
                             className={`changeset-card-status status-${cs.status.toLowerCase()}`}
                           >
                             {cs.status}
                           </span>
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "0.72rem",
+                            color: "#a3a09a",
+                            marginTop: "-4px",
+                            marginBottom: "6px",
+                          }}
+                        >
+                          ID: #{cs.id.slice(0, 8)}
                         </div>
                         <div className="changeset-card-details">
                           <div>Proposals: {cs.itemCount}</div>

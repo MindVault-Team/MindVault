@@ -474,16 +474,39 @@ function App() {
           <>
             <div className={styles.appTopBar}>
               <span className={styles.appTopBarTitle}>Memory Agent</span>
-              {pendingProposalCount > 0 && (
-                <button
-                  type="button"
-                  className={styles.pendingBadge}
-                  title="Pending memory proposals"
-                  onClick={() => setIsDiffPanelOpen(true)}
-                >
-                  {pendingProposalCount} pending
-                </button>
-              )}
+              <button
+                type="button"
+                className={styles.pendingBadge}
+                title="Memory Proposals"
+                onClick={() => setIsDiffPanelOpen(true)}
+              >
+                <span>Proposals</span>
+                {pendingProposalCount > 0 ? (
+                  <span
+                    style={{
+                      marginLeft: "6px",
+                      background: "#bc6c25",
+                      color: "#fff",
+                      borderRadius: "10px",
+                      padding: "1px 6px",
+                      fontSize: "0.65rem",
+                      fontWeight: "bold",
+                    }}
+                  >
+                    {pendingProposalCount}
+                  </span>
+                ) : (
+                  <span
+                    style={{
+                      marginLeft: "6px",
+                      opacity: 0.6,
+                      fontSize: "0.65rem",
+                    }}
+                  >
+                    0
+                  </span>
+                )}
+              </button>
             </div>
             <div className="app-workspace">
               <section className="zen-canvas" onClick={onZenCanvasClick} style={zenCanvasStyle}>

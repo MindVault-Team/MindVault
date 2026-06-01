@@ -47,16 +47,17 @@ pub fn should_extract(conn: &Connection, session_id: &str) -> Result<bool, Strin
         .map_err(|err| format!("Failed querying session message count: {err}"))?;
 
     // 2. Retrieve last extracted count
-    let last_extract_message_count =
+    let mut last_extract_message_count =
         get_setting_int(conn, "memory_agent_last_extract_message_count")?;
 
-    // 3. Compute message count difference
-    let last_count = if current_message_count < last_extract_message_count {
-        current_message_count
-    } else {
-        last_extract_message_count
-    };
-    let diff = current_message_count - last_count;
+    // 3. Reset count tracking if the chat history has been cleared or reset
+    if current_message_count < last_extract_message_count {
+        set_setting_int(conn, "memory_agent_last_extract_message_count", 0)?;
+        last_extract_message_count = 0;
+    }
+
+    // 4. Compute message count difference
+    let diff = current_message_count - last_extract_message_count;
     if diff < 6 {
         return Ok(false);
     }
