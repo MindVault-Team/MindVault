@@ -407,23 +407,46 @@ pub fn commit_changeset_transaction(
                     }
                     "merge" => {
                         if let Some(ref mid) = merge_with_id {
-                            // 1. Fetch current node details and tags
-                            let (ex_detail, ex_vault_id, ex_title, ex_summary, ex_node_type): (
+                            // 1. Fetch current node details, tags, and encrypted payload
+                            let (ex_detail, ex_vault_id, mut ex_title, mut ex_summary, ex_node_type, encrypted_payload): (
                                 Option<String>,
                                 String,
                                 String,
                                 String,
                                 String,
+                                Option<String>,
                             ) = tx
                                 .query_row(
-                                    "SELECT detail, vault_id, title, summary, node_type FROM nodes WHERE id = ?1;",
+                                    "SELECT detail, vault_id, title, summary, node_type, encrypted_payload FROM nodes WHERE id = ?1;",
                                     [mid],
-                                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+                                    |row| {
+                                        Ok((
+                                            row.get(0)?,
+                                            row.get(1)?,
+                                            row.get(2)?,
+                                            row.get(3)?,
+                                            row.get(4)?,
+                                            row.get(5)?,
+                                        ))
+                                    },
                                 )
                                 .map_err(|err| format!("Failed fetching node for merge: {err}"))?;
 
+                            let mut decrypted_detail = ex_detail;
+                            if let Some(ref enc_val) = encrypted_payload {
+                                if !enc_val.trim().is_empty() {
+                                    let key =
+                                        session_key.ok_or_else(|| "VAULT_LOCKED".to_string())?;
+                                    let payload: redacted::NodeSecretPayload =
+                                        redacted::decrypt_json(enc_val, &key)?;
+                                    ex_title = payload.title;
+                                    ex_summary = payload.summary;
+                                    decrypted_detail = payload.detail;
+                                }
+                            }
+
                             // 2. Append details
-                            let mut merged_detail = ex_detail.unwrap_or_default();
+                            let mut merged_detail = decrypted_detail.unwrap_or_default();
                             if let Some(new_det) = detail {
                                 if !new_det.trim().is_empty() {
                                     if !merged_detail.is_empty() {
@@ -556,4 +579,233 @@ pub fn commit_changeset_transaction(
         .map_err(|err| format!("Failed committing changeset transaction: {err}"))?;
 
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ipc_types::{ChangesetCommitInput, ItemReviewAction};
+    use crate::redacted;
+    use std::error::Error;
+
+    fn setup_test_db() -> Result<Connection, Box<dyn Error>> {
+        let conn = Connection::open_in_memory()?;
+        let ddl = "
+            CREATE TABLE IF NOT EXISTS vaults (
+                id TEXT PRIMARY KEY,
+                parent_vault_id TEXT,
+                name TEXT NOT NULL,
+                privacy_tier TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS sub_vaults (
+                id TEXT PRIMARY KEY,
+                vault_id TEXT REFERENCES vaults(id),
+                privacy_tier TEXT
+            );
+            CREATE TABLE IF NOT EXISTS sessions (
+                id TEXT PRIMARY KEY,
+                vault_id TEXT REFERENCES vaults(id)
+            );
+            CREATE TABLE IF NOT EXISTS nodes (
+                id TEXT PRIMARY KEY,
+                vault_id TEXT REFERENCES vaults(id),
+                sub_vault_id TEXT,
+                node_type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                detail TEXT,
+                source TEXT,
+                source_type TEXT,
+                privacy_tier TEXT,
+                priority TEXT,
+                version INTEGER NOT NULL DEFAULT 1,
+                deleted_at TEXT,
+                updated_at TEXT,
+                meta TEXT DEFAULT '{}',
+                encrypted_payload TEXT
+            );
+            CREATE TABLE IF NOT EXISTS changesets (
+                id TEXT PRIMARY KEY,
+                session_id TEXT REFERENCES sessions(id),
+                status TEXT NOT NULL DEFAULT 'pending',
+                item_count INTEGER NOT NULL DEFAULT 0,
+                accepted_count INTEGER NOT NULL DEFAULT 0,
+                dismissed_count INTEGER NOT NULL DEFAULT 0,
+                model_used TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                reviewed_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS changeset_items (
+                id TEXT PRIMARY KEY,
+                changeset_id TEXT NOT NULL REFERENCES changesets(id),
+                item_type TEXT NOT NULL,
+                target_node_id TEXT,
+                proposed_data TEXT NOT NULL DEFAULT '{}',
+                existing_data TEXT DEFAULT '{}',
+                similarity REAL,
+                merge_with_id TEXT,
+                door_id TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                reviewed_at TEXT,
+                sort_order INTEGER DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS node_tags (
+                node_id TEXT REFERENCES nodes(id),
+                tag_id TEXT REFERENCES tags(id),
+                PRIMARY KEY (node_id, tag_id)
+            );
+            CREATE TABLE IF NOT EXISTS tags (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                color TEXT
+            );
+        ";
+        conn.execute_batch(ddl)?;
+        Ok(conn)
+    }
+
+    #[test]
+    fn test_commit_merge_redacted_node() -> Result<(), Box<dyn Error>> {
+        let mut conn = setup_test_db()?;
+        let db_path = Path::new("test.db");
+
+        // Seed redacted vault and session
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_credentials', 'Credentials', 'redacted');",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO sessions (id, vault_id) VALUES ('session_redacted', 'vault_credentials');",
+            [],
+        )?;
+
+        // Encrypt seed payload
+        let key = [0_u8; 32];
+        let secret_payload = redacted::NodeSecretPayload {
+            title: "Super Secret Title".to_string(),
+            summary: "Super Secret Summary".to_string(),
+            detail: Some("Super Secret Detail".to_string()),
+            source: Some("agent_extract".to_string()),
+            source_type: Some("agent_extract".to_string()),
+        };
+        let encrypted_payload = redacted::encrypt_json(&secret_payload, &key)?;
+
+        // Insert node with placeholder values in cleartext and real values in encrypted_payload
+        conn.execute(
+            "INSERT INTO nodes (id, vault_id, node_type, title, summary, detail, encrypted_payload)
+             VALUES ('node_secret', 'vault_credentials', 'concept', '[REDACTED]', '[Metadata Locked]', NULL, ?1);",
+            [encrypted_payload],
+        )?;
+
+        // Seed changeset
+        conn.execute(
+            "INSERT INTO changesets (id, session_id, status, item_count) VALUES ('cs_redacted', 'session_redacted', 'pending', 1);",
+            [],
+        )?;
+
+        // Seed merge item
+        conn.execute(
+            "INSERT INTO changeset_items (id, changeset_id, item_type, merge_with_id, proposed_data, status)
+             VALUES ('item_merge', 'cs_redacted', 'merge', 'node_secret',
+                     '{\"title\":\"Ignored Proposed Title\",\"summary\":\"Ignored Proposed Summary\",\"detail\":\"Additional Secret Info\",\"vaultId\":\"vault_credentials\"}', 'pending');",
+            [],
+        )?;
+
+        let input = ChangesetCommitInput {
+            changeset_id: "cs_redacted".to_string(),
+            item_actions: vec![ItemReviewAction {
+                item_id: "item_merge".to_string(),
+                action: "accept".to_string(),
+                edited_data: None,
+            }],
+        };
+
+        // Commit merge transaction
+        let ok = commit_changeset_transaction(&mut conn, &input, db_path, Some(key))?;
+        assert!(ok);
+
+        // Retrieve node back
+        let (title, summary, detail, encrypted_payload): (
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+        ) = conn.query_row(
+            "SELECT title, summary, detail, encrypted_payload FROM nodes WHERE id = 'node_secret';",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+
+        // Verify cleartext placeholders are still present
+        assert_eq!(title, "[REDACTED]");
+        assert_eq!(summary, "[Metadata Locked]");
+        assert!(detail.is_none());
+
+        // Decrypt the newly merged payload
+        let enc_str = encrypted_payload.ok_or("encrypted_payload is missing")?;
+        let decrypted: redacted::NodeSecretPayload = redacted::decrypt_json(&enc_str, &key)?;
+
+        // Assert title and summary are preserved, and detail is successfully appended!
+        assert_eq!(decrypted.title, "Super Secret Title");
+        assert_eq!(decrypted.summary, "Super Secret Summary");
+        assert_eq!(
+            decrypted.detail,
+            Some("Super Secret Detail\n\nAdditional Secret Info".to_string())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_commit_merge_redacted_node_locked_fails() -> Result<(), Box<dyn Error>> {
+        let mut conn = setup_test_db()?;
+        let db_path = Path::new("test.db");
+
+        // Seed redacted vault and session
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_credentials', 'Credentials', 'redacted');",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO sessions (id, vault_id) VALUES ('session_redacted', 'vault_credentials');",
+            [],
+        )?;
+
+        // Insert node with placeholder values in cleartext
+        conn.execute(
+            "INSERT INTO nodes (id, vault_id, node_type, title, summary, detail, encrypted_payload)
+             VALUES ('node_secret', 'vault_credentials', 'concept', '[REDACTED]', '[Metadata Locked]', NULL, 'some-payload');",
+            [],
+        )?;
+
+        // Seed changeset
+        conn.execute(
+            "INSERT INTO changesets (id, session_id, status, item_count) VALUES ('cs_redacted', 'session_redacted', 'pending', 1);",
+            [],
+        )?;
+
+        // Seed merge item
+        conn.execute(
+            "INSERT INTO changeset_items (id, changeset_id, item_type, merge_with_id, proposed_data, status)
+             VALUES ('item_merge', 'cs_redacted', 'merge', 'node_secret',
+                     '{\"detail\":\"Additional Info\",\"vaultId\":\"vault_credentials\"}', 'pending');",
+            [],
+        )?;
+
+        let input = ChangesetCommitInput {
+            changeset_id: "cs_redacted".to_string(),
+            item_actions: vec![ItemReviewAction {
+                item_id: "item_merge".to_string(),
+                action: "accept".to_string(),
+                edited_data: None,
+            }],
+        };
+
+        // Try to commit without a session key - should fail with VAULT_LOCKED!
+        let result = commit_changeset_transaction(&mut conn, &input, db_path, None);
+        match result {
+            Err(err) => assert_eq!(err, "VAULT_LOCKED"),
+            Ok(_) => panic!("Expected error VAULT_LOCKED, but got Ok"),
+        }
+        Ok(())
+    }
 }
