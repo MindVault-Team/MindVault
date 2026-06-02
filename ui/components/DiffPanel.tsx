@@ -11,6 +11,13 @@ import DiffRow from "./DiffPanel/DiffRow";
 import "../style/components/DiffPanel.css";
 import "../style/components/DiffPanelActions.css";
 
+function parseSQLiteDate(dateStr: string | null | undefined): Date {
+  if (!dateStr) return new Date();
+  // If it doesn't contain 'T', replace space with 'T' and append 'Z' for UTC.
+  const normalized = dateStr.includes("T") ? dateStr : dateStr.replace(" ", "T") + "Z";
+  return new Date(normalized);
+}
+
 interface DiffPanelProps {
   onClose: () => void;
   activeChangesetId: string | null;
@@ -570,7 +577,7 @@ export default function DiffPanel({
                             <circle cx="12" cy="12" r="10" />
                             <polyline points="12 6 12 12 16 14" />
                           </svg>
-                          {new Date(cs.createdAt).toLocaleString()}
+                          {parseSQLiteDate(cs.createdAt).toLocaleString()}
                         </div>
                         {activeTab === "history" && (
                           <div
@@ -588,7 +595,7 @@ export default function DiffPanel({
                           >
                             <span>
                               📂 backups/mindvault-pre-changeset-
-                              {Math.floor(new Date(cs.reviewedAt || cs.createdAt).getTime() / 1000)}
+                              {parseSQLiteDate(cs.reviewedAt || cs.createdAt).getTime()}
                               .db
                             </span>
                           </div>
