@@ -319,6 +319,26 @@ pub fn commit_changeset_transaction(
     let mut dismissed_diff = 0i64;
 
     for item_action in &input.item_actions {
+        let current_status: String = tx
+            .query_row(
+                "SELECT status FROM changeset_items WHERE id = ?1 LIMIT 1;",
+                [&item_action.item_id],
+                |row| row.get(0),
+            )
+            .map_err(|err| {
+                format!(
+                    "Failed fetching status for changeset item '{}': {err}",
+                    item_action.item_id
+                )
+            })?;
+
+        if current_status != "pending" {
+            return Err(format!(
+                "Changeset item '{}' is already resolved (status: '{}')",
+                item_action.item_id, current_status
+            ));
+        }
+
         match item_action.action.as_str() {
             "dismiss" => {
                 tx.execute(
@@ -925,6 +945,55 @@ mod tests {
         )?;
         assert_eq!(vault_id, "vault_open");
         assert_eq!(title, "Add Item");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_commit_item_already_resolved_fails() -> Result<(), Box<dyn Error>> {
+        let mut conn = setup_test_db()?;
+        let db_path = Path::new("test.db");
+
+        // Seed vaults and changeset
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_open', 'Open', 'open');",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO changesets (id, session_id, status, item_count) VALUES ('cs_resolved', NULL, 'pending', 1);",
+            [],
+        )?;
+
+        // Seed item with status 'accepted' (already resolved)
+        conn.execute(
+            "INSERT INTO changeset_items (id, changeset_id, item_type, proposed_data, status)
+             VALUES ('item_resolved', 'cs_resolved', 'add', '{\"title\":\"Should Fail\",\"vaultId\":\"vault_open\"}', 'accepted');",
+            [],
+        )?;
+
+        let input = ChangesetCommitInput {
+            changeset_id: "cs_resolved".to_string(),
+            item_actions: vec![ItemReviewAction {
+                item_id: "item_resolved".to_string(),
+                action: "accept".to_string(),
+                edited_data: None,
+            }],
+        };
+
+        // Try to commit - should fail because status is 'accepted'
+        let result = commit_changeset_transaction(&mut conn, &input, db_path, None);
+        match result {
+            Err(err) => assert!(err.contains("already resolved")),
+            Ok(_) => panic!("Expected error due to already resolved item, but got Ok"),
+        }
+
+        // Verify the node was NOT created (transaction rolled back or aborted)
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(1) FROM nodes WHERE title = 'Should Fail';",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(count, 0);
 
         Ok(())
     }
