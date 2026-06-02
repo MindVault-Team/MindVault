@@ -269,20 +269,23 @@ pub fn commit_changeset_transaction(
     // 1. Redacted Lock Check
     for item_action in &input.item_actions {
         if item_action.action == "accept" || item_action.action == "edit" {
-            let item_row: Option<(String, String)> = conn
-                .query_row(
-                    "SELECT item_type, proposed_data FROM changeset_items WHERE id = ?1 LIMIT 1;",
-                    [&item_action.item_id],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
-                )
-                .ok();
+            let parsed_props: Option<serde_json::Value> = if item_action.action == "edit" {
+                item_action.edited_data.clone()
+            } else {
+                let proposed_data_str: Option<String> = conn
+                    .query_row(
+                        "SELECT proposed_data FROM changeset_items WHERE id = ?1 LIMIT 1;",
+                        [&item_action.item_id],
+                        |row| row.get(0),
+                    )
+                    .ok();
+                proposed_data_str.and_then(|s| serde_json::from_str(&s).ok())
+            };
 
-            if let Some((_, proposed_data)) = item_row {
-                let proposed_json: serde_json::Value =
-                    serde_json::from_str(&proposed_data).unwrap_or_else(|_| serde_json::json!({}));
-                let target_vault_id = proposed_json
+            if let Some(props) = parsed_props {
+                let target_vault_id = props
                     .get("vaultId")
-                    .or_else(|| proposed_json.get("vault_id"))
+                    .or_else(|| props.get("vault_id"))
                     .and_then(|v| v.as_str());
 
                 if let Some(vid) = target_vault_id {
@@ -816,6 +819,113 @@ mod tests {
             Err(err) => assert_eq!(err, "VAULT_LOCKED"),
             Ok(_) => panic!("Expected error VAULT_LOCKED, but got Ok"),
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_commit_edit_to_redacted_vault_locked_fails() -> Result<(), Box<dyn Error>> {
+        let mut conn = setup_test_db()?;
+        let db_path = Path::new("test.db");
+
+        // Seed vaults
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_open', 'Open', 'open');",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_credentials', 'Credentials', 'redacted');",
+            [],
+        )?;
+
+        // Seed changeset and changeset item (originally targeting open vault)
+        conn.execute(
+            "INSERT INTO changesets (id, session_id, status, item_count) VALUES ('cs_edit', NULL, 'pending', 1);",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO changeset_items (id, changeset_id, item_type, proposed_data, status)
+             VALUES ('item_edit', 'cs_edit', 'add', '{\"title\":\"Add Item\",\"vaultId\":\"vault_open\"}', 'pending');",
+            [],
+        )?;
+
+        // Action is 'edit' and redirects to redacted vault
+        let input = ChangesetCommitInput {
+            changeset_id: "cs_edit".to_string(),
+            item_actions: vec![ItemReviewAction {
+                item_id: "item_edit".to_string(),
+                action: "edit".to_string(),
+                edited_data: Some(serde_json::json!({
+                    "title": "Add Item",
+                    "vaultId": "vault_credentials"
+                })),
+            }],
+        };
+
+        // Try to commit without session key - should fail with VAULT_LOCKED because of the edit!
+        let result = commit_changeset_transaction(&mut conn, &input, db_path, None);
+        match result {
+            Err(err) => assert_eq!(err, "VAULT_LOCKED"),
+            Ok(_) => panic!("Expected error VAULT_LOCKED, but got Ok"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_commit_edit_away_from_redacted_vault_succeeds() -> Result<(), Box<dyn Error>> {
+        let mut conn = setup_test_db()?;
+        let db_path = Path::new("test.db");
+
+        // Seed vaults
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_open', 'Open', 'open');",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_credentials', 'Credentials', 'redacted');",
+            [],
+        )?;
+
+        // Seed changeset and changeset item (originally targeting redacted vault)
+        conn.execute(
+            "INSERT INTO changesets (id, session_id, status, item_count) VALUES ('cs_edit', NULL, 'pending', 1);",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO changeset_items (id, changeset_id, item_type, proposed_data, status)
+             VALUES ('item_edit', 'cs_edit', 'add', '{\"title\":\"Add Item\",\"vaultId\":\"vault_credentials\"}', 'pending');",
+            [],
+        )?;
+
+        // Action is 'edit' and redirects to open vault
+        let input = ChangesetCommitInput {
+            changeset_id: "cs_edit".to_string(),
+            item_actions: vec![ItemReviewAction {
+                item_id: "item_edit".to_string(),
+                action: "edit".to_string(),
+                edited_data: Some(serde_json::json!({
+                    "title": "Add Item",
+                    "vaultId": "vault_open"
+                })),
+            }],
+        };
+
+        // Try to commit without session key - should succeed because it was edited away from the redacted vault!
+        let result = commit_changeset_transaction(&mut conn, &input, db_path, None);
+        assert!(
+            result.is_ok(),
+            "Expected Ok, but got Err: {:?}",
+            result.err()
+        );
+
+        // Verify the node is actually created in the open vault
+        let (vault_id, title): (String, String) = conn.query_row(
+            "SELECT vault_id, title FROM nodes WHERE title = 'Add Item' LIMIT 1;",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!(vault_id, "vault_open");
+        assert_eq!(title, "Add Item");
+
         Ok(())
     }
 }
