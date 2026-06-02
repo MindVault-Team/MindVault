@@ -58,6 +58,12 @@ fn greet(name: &str) -> IpcResponse<String> {
 
 #[tauri::command]
 fn debug_seed_changeset(state: tauri::State<'_, DbState>) -> IpcResponse<bool> {
+    if !cfg!(debug_assertions) {
+        return IpcResponse::Err {
+            err: "Debug seed command is disabled in production builds.".to_string(),
+        };
+    }
+
     let mut conn = match open_connection(&state.db_path) {
         Ok(c) => c,
         Err(e) => return IpcResponse::Err { err: e },
