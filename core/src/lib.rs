@@ -58,115 +58,120 @@ fn greet(name: &str) -> IpcResponse<String> {
 
 #[tauri::command]
 fn debug_seed_changeset(state: tauri::State<'_, DbState>) -> IpcResponse<bool> {
-    if !cfg!(debug_assertions) {
-        return IpcResponse::Err {
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = state;
+        IpcResponse::Err {
             err: "Debug seed command is disabled in production builds.".to_string(),
-        };
+        }
     }
 
-    let mut conn = match open_connection(&state.db_path) {
-        Ok(c) => c,
-        Err(e) => return IpcResponse::Err { err: e },
-    };
+    #[cfg(debug_assertions)]
+    {
+        let mut conn = match open_connection(&state.db_path) {
+            Ok(c) => c,
+            Err(e) => return IpcResponse::Err { err: e },
+        };
 
-    let tx = match conn.transaction() {
-        Ok(t) => t,
-        Err(e) => return IpcResponse::Err { err: e.to_string() },
-    };
+        let tx = match conn.transaction() {
+            Ok(t) => t,
+            Err(e) => return IpcResponse::Err { err: e.to_string() },
+        };
 
-    let run_seed = || -> Result<(), rusqlite::Error> {
-        // Seed nodes
-        tx.execute(
-            "INSERT OR REPLACE INTO nodes (id, vault_id, title, summary, detail, node_type, version) VALUES \
-            ('node_update_test', 'vault_personal', 'Favorite Programming Language', 'User likes Rust programming', \
-            'Rust is a systems programming language focusing on safety and speed.', 'concept', 1);",
-            [],
-        )?;
+        let run_seed = || -> Result<(), rusqlite::Error> {
+            // Seed nodes
+            tx.execute(
+                "INSERT OR REPLACE INTO nodes (id, vault_id, title, summary, detail, node_type, version) VALUES \
+                ('node_update_test', 'vault_personal', 'Favorite Programming Language', 'User likes Rust programming', \
+                'Rust is a systems programming language focusing on safety and speed.', 'concept', 1);",
+                [],
+            )?;
 
-        tx.execute(
-            "INSERT OR REPLACE INTO nodes (id, vault_id, title, summary, detail, node_type, version) VALUES \
-            ('node_merge_test', 'vault_personal', 'MindVault Architectural Design', 'MindVault uses SQLite and Rust.', \
-            'The storage model uses rusqlite in the core backend.', 'concept', 1);",
-            [],
-        )?;
+            tx.execute(
+                "INSERT OR REPLACE INTO nodes (id, vault_id, title, summary, detail, node_type, version) VALUES \
+                ('node_merge_test', 'vault_personal', 'MindVault Architectural Design', 'MindVault uses SQLite and Rust.', \
+                'The storage model uses rusqlite in the core backend.', 'concept', 1);",
+                [],
+            )?;
 
-        tx.execute(
-            "INSERT OR REPLACE INTO nodes (id, vault_id, title, summary, detail, node_type, version) VALUES \
-            ('node_delete_test', 'vault_personal', 'Temporary Scrap Node', 'This is a temporary scrap memory node.', \
-            'This node will be soft-deleted in tests.', 'concept', 1);",
-            [],
-        )?;
+            tx.execute(
+                "INSERT OR REPLACE INTO nodes (id, vault_id, title, summary, detail, node_type, version) VALUES \
+                ('node_delete_test', 'vault_personal', 'Temporary Scrap Node', 'This is a temporary scrap memory node.', \
+                'This node will be soft-deleted in tests.', 'concept', 1);",
+                [],
+            )?;
 
-        // Seed door
-        tx.execute(
-            "INSERT OR REPLACE INTO doors (id, source_node_id, target_node_id, status) VALUES \
-            ('door_orphan_test', 'node_update_test', 'node_delete_test', 'orphaned');",
-            [],
-        )?;
+            // Seed door
+            tx.execute(
+                "INSERT OR REPLACE INTO doors (id, source_node_id, target_node_id, status) VALUES \
+                ('door_orphan_test', 'node_update_test', 'node_delete_test', 'orphaned');",
+                [],
+            )?;
 
-        // Seed changeset
-        tx.execute(
-            "INSERT OR REPLACE INTO changesets (id, session_id, status, item_count, accepted_count, dismissed_count, model_used) VALUES \
-            ('cs_debug_all', 'test-session', 'pending', 5, 0, 0, 'dev-seed-model');",
-            [],
-        )?;
+            // Seed changeset
+            tx.execute(
+                "INSERT OR REPLACE INTO changesets (id, session_id, status, item_count, accepted_count, dismissed_count, model_used) VALUES \
+                ('cs_debug_all', 'test-session', 'pending', 5, 0, 0, 'dev-seed-model');",
+                [],
+            )?;
 
-        // Seed changeset items
-        tx.execute(
-            "INSERT OR REPLACE INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, existing_data, similarity, merge_with_id, door_id, status) VALUES \
-            ('item_add', 'cs_debug_all', 'add', NULL, \
-            '{\"title\":\"Indefinite Integral of x^3 * e^(x^2)\",\"summary\":\"Math exploration\",\"detail\":\"The user solved the integral using integration by parts.\",\"tags\":[\"math\",\"calculus\"],\"vaultId\":\"vault_personal\"}', \
-            '{}', NULL, NULL, NULL, 'pending');",
-            [],
-        )?;
+            // Seed changeset items
+            tx.execute(
+                "INSERT OR REPLACE INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, existing_data, similarity, merge_with_id, door_id, status) VALUES \
+                ('item_add', 'cs_debug_all', 'add', NULL, \
+                '{\"title\":\"Indefinite Integral of x^3 * e^(x^2)\",\"summary\":\"Math exploration\",\"detail\":\"The user solved the integral using integration by parts.\",\"tags\":[\"math\",\"calculus\"],\"vaultId\":\"vault_personal\"}', \
+                '{}', NULL, NULL, NULL, 'pending');",
+                [],
+            )?;
 
-        tx.execute(
-            "INSERT OR REPLACE INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, existing_data, similarity, merge_with_id, door_id, status) VALUES \
-            ('item_update', 'cs_debug_all', 'update', 'node_update_test', \
-            '{\"title\":\"My Favorite Programming Language\",\"summary\":\"User highly prefers Rust coding\",\"detail\":\"Rust is a systems programming language focusing on memory safety, speed, and concurrency.\",\"tags\":[\"rust\",\"systems\",\"coding\"],\"vaultId\":\"vault_personal\"}', \
-            '{\"title\":\"Favorite Programming Language\",\"summary\":\"User likes Rust programming\",\"detail\":\"Rust is a systems programming language focusing on safety and speed.\",\"tags\":[\"rust\",\"coding\"],\"vaultId\":\"vault_personal\"}', \
-            0.85, NULL, NULL, 'pending');",
-            [],
-        )?;
+            tx.execute(
+                "INSERT OR REPLACE INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, existing_data, similarity, merge_with_id, door_id, status) VALUES \
+                ('item_update', 'cs_debug_all', 'update', 'node_update_test', \
+                '{\"title\":\"My Favorite Programming Language\",\"summary\":\"User highly prefers Rust coding\",\"detail\":\"Rust is a systems programming language focusing on memory safety, speed, and concurrency.\",\"tags\":[\"rust\",\"systems\",\"coding\"],\"vaultId\":\"vault_personal\"}', \
+                '{\"title\":\"Favorite Programming Language\",\"summary\":\"User likes Rust programming\",\"detail\":\"Rust is a systems programming language focusing on safety and speed.\",\"tags\":[\"rust\",\"coding\"],\"vaultId\":\"vault_personal\"}', \
+                0.85, NULL, NULL, 'pending');",
+                [],
+            )?;
 
-        tx.execute(
-            "INSERT OR REPLACE INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, existing_data, similarity, merge_with_id, door_id, status) VALUES \
-            ('item_merge', 'cs_debug_all', 'merge', 'node_merge_test', \
-            '{\"detail\":\"Memory Agent triggers debounced runs and compiles changesets into transactional items.\",\"tags\":[\"tauri\",\"architecture\"]}', \
-            '{\"title\":\"MindVault Architectural Design\",\"summary\":\"MindVault uses SQLite and Rust.\",\"detail\":\"The storage model uses rusqlite in the core backend.\",\"tags\":[\"sqlite\",\"architecture\"],\"vaultId\":\"vault_personal\"}', \
-            0.6, NULL, NULL, 'pending');",
-            [],
-        )?;
+            tx.execute(
+                "INSERT OR REPLACE INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, existing_data, similarity, merge_with_id, door_id, status) VALUES \
+                ('item_merge', 'cs_debug_all', 'merge', 'node_merge_test', \
+                '{\"detail\":\"Memory Agent triggers debounced runs and compiles changesets into transactional items.\",\"tags\":[\"tauri\",\"architecture\"]}', \
+                '{\"title\":\"MindVault Architectural Design\",\"summary\":\"MindVault uses SQLite and Rust.\",\"detail\":\"The storage model uses rusqlite in the core backend.\",\"tags\":[\"sqlite\",\"architecture\"],\"vaultId\":\"vault_personal\"}', \
+                0.6, NULL, NULL, 'pending');",
+                [],
+            )?;
 
-        tx.execute(
-            "INSERT OR REPLACE INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, existing_data, similarity, merge_with_id, door_id, status) VALUES \
-            ('item_delete', 'cs_debug_all', 'delete', 'node_delete_test', \
-            '{\"summary\":\"The temporary scrap memory node is no longer needed since the session has ended.\"}', \
-            '{\"title\":\"Temporary Scrap Node\",\"summary\":\"This is a temporary scrap memory node.\",\"tags\":[\"scrap\"],\"vaultId\":\"vault_personal\"}', \
-            1.0, NULL, NULL, 'pending');",
-            [],
-        )?;
+            tx.execute(
+                "INSERT OR REPLACE INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, existing_data, similarity, merge_with_id, door_id, status) VALUES \
+                ('item_delete', 'cs_debug_all', 'delete', 'node_delete_test', \
+                '{\"summary\":\"The temporary scrap memory node is no longer needed since the session has ended.\"}', \
+                '{\"title\":\"Temporary Scrap Node\",\"summary\":\"This is a temporary scrap memory node.\",\"tags\":[\"scrap\"],\"vaultId\":\"vault_personal\"}', \
+                1.0, NULL, NULL, 'pending');",
+                [],
+            )?;
 
-        tx.execute(
-            "INSERT OR REPLACE INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, existing_data, similarity, merge_with_id, door_id, status) VALUES \
-            ('item_orphan', 'cs_debug_all', 'repoint_door', 'node_update_test', \
-            '{\"doorId\":\"door_orphan_test\",\"targetNodeId\":\"node_update_test\"}', \
-            '{}', NULL, NULL, 'door_orphan_test', 'pending');",
-            [],
-        )?;
+            tx.execute(
+                "INSERT OR REPLACE INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, existing_data, similarity, merge_with_id, door_id, status) VALUES \
+                ('item_orphan', 'cs_debug_all', 'repoint_door', 'node_update_test', \
+                '{\"doorId\":\"door_orphan_test\",\"targetNodeId\":\"node_update_test\"}', \
+                '{}', NULL, NULL, 'door_orphan_test', 'pending');",
+                [],
+            )?;
 
-        Ok(())
-    };
+            Ok(())
+        };
 
-    match run_seed() {
-        Ok(_) => {
-            if let Err(e) = tx.commit() {
-                IpcResponse::Err { err: e.to_string() }
-            } else {
-                IpcResponse::Ok { ok: true }
+        match run_seed() {
+            Ok(_) => {
+                if let Err(e) = tx.commit() {
+                    IpcResponse::Err { err: e.to_string() }
+                } else {
+                    IpcResponse::Ok { ok: true }
+                }
             }
+            Err(e) => IpcResponse::Err { err: e.to_string() },
         }
-        Err(e) => IpcResponse::Err { err: e.to_string() },
     }
 }
 

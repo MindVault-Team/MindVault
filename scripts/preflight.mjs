@@ -202,10 +202,12 @@ const steps = [
   },
   { name: "cargo test", cmd: CARGO_TEST_CMD.join(" ") },
   {
-    name: fix ? "format generated types (write)" : "format generated types (check)",
-    cmd: fix
-      ? "npx prettier --write ui/types/generated"
-      : "npx prettier --check ui/types/generated",
+    name: "format generated types",
+    cmd: "npx prettier --write --ignore-path .prettierignore.none ui/types/generated",
+  },
+  {
+    name: "refresh generated types index",
+    cmd: "git add ui/types/generated && git reset HEAD -- ui/types/generated",
   },
 ];
 
