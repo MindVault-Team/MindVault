@@ -34,7 +34,11 @@ export async function getNode(nodeId: string): Promise<Node | null> {
 }
 
 export async function getNodes(isRedactedUnlocked?: boolean): Promise<Node[]> {
-  if (isRedactedUnlocked !== undefined && cachedUnlockState !== isRedactedUnlocked) {
+  if (isRedactedUnlocked === undefined) {
+    clearNodesCache();
+    return unwrapIpcResult(nodeList());
+  }
+  if (cachedUnlockState !== isRedactedUnlocked) {
     cachedNodes = null;
     cachedUnlockState = isRedactedUnlocked;
   }
