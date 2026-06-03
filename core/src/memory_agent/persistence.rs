@@ -135,6 +135,26 @@ pub fn list_changeset_items(
     };
     let source_val = privacy_tier_value(&source_tier);
 
+    // 2. Preload all vault privacy tiers into a HashMap to avoid N+1 queries
+    let mut vault_map: std::collections::HashMap<String, (String, String)> =
+        std::collections::HashMap::new();
+    {
+        let mut vault_stmt = conn
+            .prepare("SELECT id, name, privacy_tier FROM vaults;")
+            .map_err(|err| format!("Failed to prepare vault preload query: {err}"))?;
+        let vault_rows = vault_stmt
+            .query_map([], |row| {
+                let id: String = row.get(0)?;
+                let name: String = row.get(1)?;
+                let tier: String = row.get(2)?;
+                Ok((id, name, tier))
+            })
+            .map_err(|err| format!("Failed to execute vault preload query: {err}"))?;
+        for (id, name, tier) in vault_rows.flatten() {
+            vault_map.insert(id, (name, tier));
+        }
+    }
+
     let mut stmt = conn
         .prepare(
             "SELECT id, changeset_id, item_type, target_node_id, proposed_data, existing_data, similarity, merge_with_id, door_id, status, reviewed_at, sort_order
@@ -159,47 +179,9 @@ pub fn list_changeset_items(
             let reviewed_at: Option<String> = row.get(10)?;
             let sort_order: i64 = row.get(11)?;
 
-            // 2. Parse target vault sensitivity from proposed_data
-            let proposed_json: serde_json::Value = serde_json::from_str(&proposed_data)
-                .unwrap_or_else(|_| serde_json::json!({}));
-            let target_vault_id = proposed_json
-                .get("vaultId")
-                .or_else(|| proposed_json.get("vault_id"))
-                .and_then(|v| v.as_str());
-
-            let target_info: Option<(String, String)> = if let Some(vid) = target_vault_id {
-                conn.query_row(
-                    "SELECT name, privacy_tier FROM vaults WHERE id = ?1 LIMIT 1;",
-                    [vid],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
-                )
-                .ok()
-            } else {
-                None
-            };
-            let (target_vault_name, target_tier) = match target_info {
-                Some((name, tier)) => (Some(name), tier),
-                None => (None, "open".to_string()),
-            };
-            let target_val = privacy_tier_value(&target_tier);
-
-            // 3. Compute cross-vault anomaly
-            let cross_vault_anomaly = target_val > source_val;
-            let anomaly_warning = if cross_vault_anomaly {
-                Some(format!(
-                    "Security Warning: Slated for {} ({}) but source conversation was scoped to {} ({}). Review carefully.",
-                    target_vault_name.unwrap_or_else(|| target_vault_id.unwrap_or("target").to_string()),
-                    target_tier.to_uppercase(),
-                    source_vault_name.as_deref().unwrap_or("source"),
-                    source_tier.to_uppercase()
-                ))
-            } else {
-                None
-            };
-
-            Ok(crate::ipc_types::ChangesetItem {
+            Ok((
                 id,
-                changeset_id: c_id,
+                c_id,
                 item_type,
                 target_node_id,
                 proposed_data,
@@ -210,15 +192,72 @@ pub fn list_changeset_items(
                 status,
                 reviewed_at,
                 sort_order,
-                cross_vault_anomaly,
-                anomaly_warning,
-            })
+            ))
         })
         .map_err(|err| format!("Failed to execute list changeset items query: {err}"))?;
 
     let mut list = Vec::new();
     for r in rows {
-        list.push(r.map_err(|e| format!("Failed decoding changeset item row: {e}"))?);
+        let (
+            id,
+            c_id,
+            item_type,
+            target_node_id,
+            proposed_data,
+            existing_data,
+            similarity,
+            merge_with_id,
+            door_id,
+            status,
+            reviewed_at,
+            sort_order,
+        ) = r.map_err(|e| format!("Failed decoding changeset item row: {e}"))?;
+
+        // 3. Parse target vault sensitivity from proposed_data, look up from preloaded map
+        let proposed_json: serde_json::Value =
+            serde_json::from_str(&proposed_data).unwrap_or_else(|_| serde_json::json!({}));
+        let target_vault_id = proposed_json
+            .get("vaultId")
+            .or_else(|| proposed_json.get("vault_id"))
+            .and_then(|v| v.as_str());
+
+        let (target_vault_name, target_tier) =
+            match target_vault_id.and_then(|vid| vault_map.get(vid)) {
+                Some((name, tier)) => (Some(name.clone()), tier.clone()),
+                None => (None, "open".to_string()),
+            };
+        let target_val = privacy_tier_value(&target_tier);
+
+        // 4. Compute cross-vault anomaly
+        let cross_vault_anomaly = target_val > source_val;
+        let anomaly_warning = if cross_vault_anomaly {
+            Some(format!(
+                "Security Warning: Slated for {} ({}) but source conversation was scoped to {} ({}). Review carefully.",
+                target_vault_name.unwrap_or_else(|| target_vault_id.unwrap_or("target").to_string()),
+                target_tier.to_uppercase(),
+                source_vault_name.as_deref().unwrap_or("source"),
+                source_tier.to_uppercase()
+            ))
+        } else {
+            None
+        };
+
+        list.push(crate::ipc_types::ChangesetItem {
+            id,
+            changeset_id: c_id,
+            item_type,
+            target_node_id,
+            proposed_data,
+            existing_data,
+            similarity,
+            merge_with_id,
+            door_id,
+            status,
+            reviewed_at,
+            sort_order,
+            cross_vault_anomaly,
+            anomaly_warning,
+        });
     }
     Ok(list)
 }
