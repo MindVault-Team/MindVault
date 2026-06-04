@@ -412,6 +412,10 @@ pub fn commit_changeset_transaction(
         .transaction()
         .map_err(|err| format!("Failed starting changeset commit transaction: {err}"))?;
 
+    let mut tag_stmt = tx
+        .prepare("SELECT t.name FROM node_tags nt JOIN tags t ON nt.tag_id = t.id WHERE nt.node_id = ?1;")
+        .map_err(|err| format!("Failed preparing tag fetch statement: {err}"))?;
+
     let mut accepted_diff = 0i64;
     let mut dismissed_diff = 0i64;
 
@@ -531,9 +535,6 @@ pub fn commit_changeset_transaction(
                         current_node_type = Some(n_type);
 
                         // Load current tags
-                        let mut tag_stmt = tx.prepare_cached(
-                            "SELECT t.name FROM node_tags nt JOIN tags t ON nt.tag_id = t.id WHERE nt.node_id = ?1;"
-                        ).map_err(|err| format!("Failed preparing tag fetch: {err}"))?;
                         let tag_rows = tag_stmt
                             .query_map([nid], |row| row.get::<_, String>(0))
                             .map_err(|err| format!("Failed executing tag fetch: {err}"))?;
@@ -692,10 +693,7 @@ pub fn commit_changeset_transaction(
 
                         // 3. Union tags
                         let mut merged_tags = HashSet::new();
-                        let mut stmt = tx
-                            .prepare_cached("SELECT t.name FROM node_tags nt JOIN tags t ON nt.tag_id = t.id WHERE nt.node_id = ?1;")
-                            .map_err(|err| format!("Failed querying current tags: {err}"))?;
-                        let rows = stmt
+                        let rows = tag_stmt
                             .query_map([mid], |row| row.get::<_, String>(0))
                             .map_err(|err| format!("Failed fetching current tags: {err}"))?;
                         for r in rows.flatten() {
@@ -848,6 +846,8 @@ pub fn commit_changeset_transaction(
         params![input.changeset_id, resolved_status],
     )
     .map_err(|err| format!("Failed final status update on parent changeset: {err}"))?;
+
+    drop(tag_stmt);
 
     tx.commit()
         .map_err(|err| format!("Failed committing changeset transaction: {err}"))?;
