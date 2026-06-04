@@ -59,7 +59,7 @@ export default function ItemActions({ item, onCommitItem }: ItemActionsProps) {
       ...parseJSON(item.proposedData),
       title: editForm.title.trim() || undefined,
       summary: editForm.summary.trim() || undefined,
-      detail: editForm.detail.trim() || undefined,
+      detail: editForm.detail.trim(),
       tags: editForm.tags
         ? editForm.tags
             .split(",")
