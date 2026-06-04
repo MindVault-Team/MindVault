@@ -717,7 +717,7 @@ pub fn commit_changeset_transaction(
                             if merged_detail.is_empty() {
                                 None
                             } else {
-                                Some(&merged_detail)
+                                Some(merged_detail.as_str())
                             },
                             &ex_node_type,
                             Some(&merged_tags_vec),
