@@ -745,18 +745,10 @@ fn changeset_list_resolved(state: tauri::State<'_, AppState>) -> Result<Vec<Chan
 fn changeset_commit(
     input: ipc_types::ChangesetCommitInput,
     state: tauri::State<'_, AppState>,
-) -> IpcResponse<bool> {
-    let mut conn = match open_connection(&state.db_path) {
-        Ok(c) => c,
-        Err(err) => return IpcResponse::Err { err },
-    };
+) -> Result<bool, String> {
+    let mut conn = open_connection(&state.db_path)?;
     let session_key = redacted::get_session_key(&state);
-    into_ipc(memory_agent::commit_changeset_transaction(
-        &mut conn,
-        &input,
-        &state.db_path,
-        session_key,
-    ))
+    memory_agent::commit_changeset_transaction(&mut conn, &input, &state.db_path, session_key)
 }
 
 fn sqlite_db_path<R: tauri::Runtime>(
