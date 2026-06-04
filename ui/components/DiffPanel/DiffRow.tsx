@@ -42,6 +42,55 @@ function setCache(key: string, value: DiffToken[]) {
   diffCache.set(key, value);
 }
 
+function diffLines(oldStr: string, newStr: string): DiffToken[] {
+  const oldLines = oldStr
+    .split("\n")
+    .map((line, idx, arr) => line + (idx < arr.length - 1 ? "\n" : ""));
+  const newLines = newStr
+    .split("\n")
+    .map((line, idx, arr) => line + (idx < arr.length - 1 ? "\n" : ""));
+
+  // If the number of lines is also extremely large (e.g., > 300 lines),
+  // fall back to displaying the text directly without highlighting to prevent hangs.
+  if (oldLines.length > 300 || newLines.length > 300) {
+    return [{ type: "match", text: newStr }];
+  }
+
+  const dp: number[][] = Array.from({ length: oldLines.length + 1 }, () =>
+    new Array(newLines.length + 1).fill(0)
+  );
+
+  for (let i = 1; i <= oldLines.length; i++) {
+    for (let j = 1; j <= newLines.length; j++) {
+      if (oldLines[i - 1] === newLines[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+
+  const tokens: DiffToken[] = [];
+  let i = oldLines.length;
+  let j = newLines.length;
+
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+      tokens.push({ type: "match", text: oldLines[i - 1] });
+      i--;
+      j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      tokens.push({ type: "insert", text: newLines[j - 1] });
+      j--;
+    } else {
+      tokens.push({ type: "delete", text: oldLines[i - 1] });
+      i--;
+    }
+  }
+
+  return tokens.reverse();
+}
+
 function diffWords(oldStr: string, newStr: string): DiffToken[] {
   const cleanOld = oldStr || "";
   const cleanNew = newStr || "";
@@ -57,6 +106,17 @@ function diffWords(oldStr: string, newStr: string): DiffToken[] {
   }
   if (!cleanNew) {
     const result: DiffToken[] = [{ type: "delete", text: cleanOld }];
+    setCache(cacheKey, result);
+    return result;
+  }
+
+  // Prevent O(N*M) quadratic complexity in LCS diffing by setting a threshold limit.
+  // If either string exceeds 300 words, we fall back to a line-by-line diff.
+  const oldWordCount = cleanOld.split(/\s+/).filter(Boolean).length;
+  const newWordCount = cleanNew.split(/\s+/).filter(Boolean).length;
+
+  if (oldWordCount > 300 || newWordCount > 300) {
+    const result = diffLines(cleanOld, cleanNew);
     setCache(cacheKey, result);
     return result;
   }
