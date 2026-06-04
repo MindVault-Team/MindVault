@@ -581,7 +581,12 @@ pub fn commit_changeset_transaction(
                 }
                 accepted_diff += 1;
             }
-            _ => {}
+            _ => {
+                return Err(format!(
+                    "Unsupported action '{}' for changeset item '{}'",
+                    item_action.action, item_action.item_id
+                ));
+            }
         }
     }
 
@@ -1173,6 +1178,65 @@ mod tests {
         // Verify no node was created
         let count: i64 = conn.query_row(
             "SELECT COUNT(1) FROM nodes WHERE title = 'Item B';",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(count, 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_commit_unsupported_action_fails() -> Result<(), Box<dyn Error>> {
+        let mut conn = setup_test_db()?;
+        let db_path = Path::new("test.db");
+
+        // Seed vault
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_open', 'Open', 'open');",
+            [],
+        )?;
+
+        // Seed changeset
+        conn.execute(
+            "INSERT INTO changesets (id, status, item_count) VALUES ('cs_a', 'pending', 1);",
+            [],
+        )?;
+
+        // Seed changeset item
+        conn.execute(
+            "INSERT INTO changeset_items (id, changeset_id, item_type, proposed_data, status)
+             VALUES ('item_a', 'cs_a', 'add', '{\"title\":\"Item A\",\"vaultId\":\"vault_open\"}', 'pending');",
+            [],
+        )?;
+
+        // Try to commit with unsupported action "destroy"
+        let input = ChangesetCommitInput {
+            changeset_id: "cs_a".to_string(),
+            item_actions: vec![ItemReviewAction {
+                item_id: "item_a".to_string(),
+                action: "destroy".to_string(),
+                edited_data: None,
+            }],
+        };
+
+        let result = commit_changeset_transaction(&mut conn, &input, db_path, None);
+        let err_msg = result
+            .err()
+            .ok_or("Expected error due to unsupported action")?;
+        assert!(err_msg.contains("Unsupported action 'destroy'"));
+
+        // Verify item_a is still pending
+        let status: String = conn.query_row(
+            "SELECT status FROM changeset_items WHERE id = 'item_a';",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(status, "pending");
+
+        // Verify no node was created
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(1) FROM nodes WHERE title = 'Item A';",
             [],
             |row| row.get(0),
         )?;
