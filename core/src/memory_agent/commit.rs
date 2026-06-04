@@ -216,8 +216,9 @@ fn update_changeset_node(
         summary.to_string()
     };
 
-    tx.execute(
-        "UPDATE nodes
+    let rows_affected = tx
+        .execute(
+            "UPDATE nodes
          SET vault_id = ?2,
              sub_vault_id = ?3,
              node_type = ?4,
@@ -228,18 +229,25 @@ fn update_changeset_node(
              updated_at = datetime('now'),
              encrypted_payload = ?8
          WHERE id = ?1 AND deleted_at IS NULL;",
-        params![
-            node_id,
-            resolved_vault_id,
-            resolved_sub_vault_id,
-            node_type,
-            stored_title,
-            stored_summary,
-            if is_redacted { None } else { detail },
-            encrypted_payload
-        ],
-    )
-    .map_err(|err| format!("Failed updating node: {err}"))?;
+            params![
+                node_id,
+                resolved_vault_id,
+                resolved_sub_vault_id,
+                node_type,
+                stored_title,
+                stored_summary,
+                if is_redacted { None } else { detail },
+                encrypted_payload
+            ],
+        )
+        .map_err(|err| format!("Failed updating node: {err}"))?;
+
+    if rows_affected == 0 {
+        return Err(format!(
+            "Node '{}' not found or already deleted (0 rows updated)",
+            node_id
+        ));
+    }
 
     tx.execute("DELETE FROM node_tags WHERE node_id = ?1;", [node_id])
         .map_err(|err| format!("Failed clearing node tags: {err}"))?;
@@ -487,7 +495,7 @@ pub fn commit_changeset_transaction(
                             Option<String>,
                         ) = tx
                             .query_row(
-                                "SELECT detail, vault_id, title, summary, node_type, encrypted_payload FROM nodes WHERE id = ?1;",
+                                "SELECT detail, vault_id, title, summary, node_type, encrypted_payload FROM nodes WHERE id = ?1 AND deleted_at IS NULL;",
                                 [mid],
                                 |row| {
                                     Ok((
@@ -566,11 +574,17 @@ pub fn commit_changeset_transaction(
                                 item_action.item_id
                             )
                         })?;
-                        tx.execute(
-                            "UPDATE nodes SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?1;",
+                        let rows_affected = tx.execute(
+                            "UPDATE nodes SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?1 AND deleted_at IS NULL;",
                             [nid],
                         )
                         .map_err(|err| format!("Failed soft deleting node: {err}"))?;
+                        if rows_affected == 0 {
+                            return Err(format!(
+                                "Node '{}' not found or already deleted (0 rows affected during delete)",
+                                nid
+                            ));
+                        }
                     }
                     "repoint_door" | "orphan_alert" => {
                         let door_id: Option<String> = tx
@@ -596,11 +610,14 @@ pub fn commit_changeset_transaction(
                             )
                         })?;
 
-                        tx.execute(
+                        let rows_affected = tx.execute(
                             "UPDATE doors SET target_node_id = ?1, status = 'active', updated_at = datetime('now') WHERE id = ?2;",
                             params![nid, did],
                         )
                         .map_err(|err| format!("Failed repointing door: {err}"))?;
+                        if rows_affected == 0 {
+                            return Err(format!("Door '{}' not found (0 rows updated)", did));
+                        }
 
                         // Backlink triggers will auto-sync backlinks
                     }
@@ -1500,6 +1517,88 @@ mod tests {
         assert_eq!(summary, "[Metadata Locked]");
         assert!(encrypted_payload.is_some());
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_commit_update_stale_target_fails() -> Result<(), Box<dyn Error>> {
+        let mut conn = setup_test_db()?;
+        let db_path = Path::new("test.db");
+
+        // Seed vault
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_open', 'Open', 'open');",
+            [],
+        )?;
+
+        // Seed changeset
+        conn.execute(
+            "INSERT INTO changesets (id, status, item_count) VALUES ('cs_update_stale', 'pending', 1);",
+            [],
+        )?;
+
+        // Seed changeset item targeting a nonexistent node
+        conn.execute(
+            "INSERT INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, status)
+             VALUES ('item_update_stale', 'cs_update_stale', 'update', 'nonexistent_node', '{\"title\":\"Title\",\"vaultId\":\"vault_open\"}', 'pending');",
+            [],
+        )?;
+
+        let input = ChangesetCommitInput {
+            changeset_id: "cs_update_stale".to_string(),
+            item_actions: vec![ItemReviewAction {
+                item_id: "item_update_stale".to_string(),
+                action: "accept".to_string(),
+                edited_data: None,
+            }],
+        };
+
+        let result = commit_changeset_transaction(&mut conn, &input, db_path, None);
+        let err_msg = result
+            .err()
+            .ok_or("Expected error due to stale target node")?;
+        assert!(err_msg.contains("not found or already deleted"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_commit_delete_stale_target_fails() -> Result<(), Box<dyn Error>> {
+        let mut conn = setup_test_db()?;
+        let db_path = Path::new("test.db");
+
+        // Seed vault
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_open', 'Open', 'open');",
+            [],
+        )?;
+
+        // Seed changeset
+        conn.execute(
+            "INSERT INTO changesets (id, status, item_count) VALUES ('cs_delete_stale', 'pending', 1);",
+            [],
+        )?;
+
+        // Seed changeset item targeting a nonexistent node
+        conn.execute(
+            "INSERT INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, status)
+             VALUES ('item_delete_stale', 'cs_delete_stale', 'delete', 'nonexistent_node', '{\"title\":\"Title\",\"vaultId\":\"vault_open\"}', 'pending');",
+            [],
+        )?;
+
+        let input = ChangesetCommitInput {
+            changeset_id: "cs_delete_stale".to_string(),
+            item_actions: vec![ItemReviewAction {
+                item_id: "item_delete_stale".to_string(),
+                action: "accept".to_string(),
+                edited_data: None,
+            }],
+        };
+
+        let result = commit_changeset_transaction(&mut conn, &input, db_path, None);
+        let err_msg = result
+            .err()
+            .ok_or("Expected error due to stale target node")?;
+        assert!(err_msg.contains("not found or already deleted"));
         Ok(())
     }
 }
