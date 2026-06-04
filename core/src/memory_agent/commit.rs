@@ -188,6 +188,25 @@ fn update_changeset_node(
         resolve_effective_privacy(tx, &resolved_vault_id, sub_vault_privacy.as_deref())?;
     let is_redacted = effective_privacy == "redacted";
 
+    let current_is_encrypted = tx
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1
+                FROM nodes
+                WHERE id = ?1 AND deleted_at IS NULL AND encrypted_payload IS NOT NULL AND encrypted_payload != ''
+            );",
+            [node_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|err| format!("Failed checking redacted state for node {}: {err}", node_id))? > 0;
+
+    if current_is_encrypted && !is_redacted && session_key.is_none() {
+        return Err(
+            "Unlock redacted content with your master password before changing the node to a non-redacted tier."
+                .to_string(),
+        );
+    }
+
     let encrypted_payload = if is_redacted {
         let key = session_key.ok_or_else(|| "VAULT_LOCKED".to_string())?;
         Some(redacted::encrypt_json(
@@ -313,12 +332,50 @@ pub fn commit_changeset_transaction(
             };
 
             if let Some(props) = parsed_props {
-                let target_vault_id = props
+                let mut target_vault_id = props
                     .get("vaultId")
                     .or_else(|| props.get("vault_id"))
-                    .and_then(|v| v.as_str());
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
 
-                if let Some(vid) = target_vault_id {
+                let mut current_is_encrypted = false;
+
+                let item_info: Option<(String, Option<String>)> = conn
+                    .query_row(
+                        "SELECT item_type, target_node_id FROM changeset_items WHERE id = ?1 AND changeset_id = ?2 AND status = 'pending' LIMIT 1;",
+                        params![&item_action.item_id, &input.changeset_id],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .ok();
+
+                if let Some((ref item_type, Some(ref node_id))) = item_info {
+                    if item_type == "update" {
+                        current_is_encrypted = conn
+                            .query_row(
+                                "SELECT EXISTS(
+                                    SELECT 1
+                                    FROM nodes
+                                    WHERE id = ?1 AND deleted_at IS NULL AND encrypted_payload IS NOT NULL AND encrypted_payload != ''
+                                );",
+                                [node_id],
+                                |row| row.get::<_, i64>(0),
+                            )
+                            .unwrap_or(0) > 0;
+
+                        if target_vault_id.is_none() {
+                            let current_vault: Option<String> = conn
+                                .query_row(
+                                    "SELECT COALESCE(sub_vault_id, vault_id) FROM nodes WHERE id = ?1 AND deleted_at IS NULL;",
+                                    [node_id],
+                                    |row| row.get(0),
+                                )
+                                .ok();
+                            target_vault_id = current_vault;
+                        }
+                    }
+                }
+
+                if let Some(ref vid) = target_vault_id {
                     let target_tier: String = conn
                         .query_row(
                             "SELECT COALESCE(
@@ -333,7 +390,11 @@ pub fn commit_changeset_transaction(
                         )
                         .unwrap_or_else(|_| "open".to_string());
 
-                    if target_tier == "redacted" && session_key.is_none() {
+                    let is_target_redacted = target_tier == "redacted";
+                    if is_target_redacted && session_key.is_none() {
+                        return Err("VAULT_LOCKED".to_string());
+                    }
+                    if !is_target_redacted && current_is_encrypted && session_key.is_none() {
                         return Err("VAULT_LOCKED".to_string());
                     }
                 }
@@ -1771,6 +1832,175 @@ mod tests {
             |row| row.get(0),
         )?;
         assert_eq!(tag_name, "Existing Tag");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_commit_update_unredact_locked_node_fails() -> Result<(), Box<dyn Error>> {
+        let mut conn = setup_test_db()?;
+        let db_path = Path::new("test.db");
+
+        // Seed vaults
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_redacted', 'Redacted Vault', 'redacted');",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_open', 'Open Vault', 'open');",
+            [],
+        )?;
+
+        // Seed encrypted node
+        conn.execute(
+            "INSERT INTO nodes (id, vault_id, node_type, title, summary, detail, encrypted_payload)
+             VALUES ('node_encrypted', 'vault_redacted', 'concept', '[REDACTED]', '[Metadata Locked]', NULL, 'some-encrypted-payload');",
+            [],
+        )?;
+
+        // Seed changeset
+        conn.execute(
+            "INSERT INTO changesets (id, status, item_count) VALUES ('cs_unredact', 'pending', 1);",
+            [],
+        )?;
+
+        // Seed changeset item: update node_encrypted to vault_open
+        conn.execute(
+            "INSERT INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, status)
+             VALUES ('item_unredact', 'cs_unredact', 'update', 'node_encrypted', '{\"title\":\"New Title\",\"summary\":\"New Summary\",\"detail\":\"New Detail\",\"vaultId\":\"vault_open\"}', 'pending');",
+            [],
+        )?;
+
+        let input = ChangesetCommitInput {
+            changeset_id: "cs_unredact".to_string(),
+            item_actions: vec![ItemReviewAction {
+                item_id: "item_unredact".to_string(),
+                action: "accept".to_string(),
+                edited_data: None,
+            }],
+        };
+
+        // Attempting to commit without session key should fail with VAULT_LOCKED
+        let result = commit_changeset_transaction(&mut conn, &input, db_path, None);
+        assert_eq!(result.err(), Some("VAULT_LOCKED".to_string()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_commit_update_unredact_unlocked_node_succeeds() -> Result<(), Box<dyn Error>> {
+        let mut conn = setup_test_db()?;
+        let db_path = Path::new("test.db");
+
+        // Seed vaults
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_redacted', 'Redacted Vault', 'redacted');",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_open', 'Open Vault', 'open');",
+            [],
+        )?;
+
+        // Setup session key
+        let key = [0_u8; 32];
+
+        let secret_payload = redacted::NodeSecretPayload {
+            title: "Secret Title".to_string(),
+            summary: "Secret Summary".to_string(),
+            detail: Some("Secret Detail".to_string()),
+            source: Some("agent_extract".to_string()),
+            source_type: Some("agent_extract".to_string()),
+        };
+        let encrypted_payload = redacted::encrypt_json(&secret_payload, &key)?;
+
+        // Seed encrypted node
+        conn.execute(
+            "INSERT INTO nodes (id, vault_id, node_type, title, summary, detail, encrypted_payload)
+             VALUES ('node_encrypted', 'vault_redacted', 'concept', '[REDACTED]', '[Metadata Locked]', NULL, ?1);",
+            [encrypted_payload],
+        )?;
+
+        // Seed changeset
+        conn.execute(
+            "INSERT INTO changesets (id, status, item_count) VALUES ('cs_unredact', 'pending', 1);",
+            [],
+        )?;
+
+        // Seed changeset item: update node_encrypted to vault_open (with edits/proposals)
+        conn.execute(
+            "INSERT INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, status)
+             VALUES ('item_unredact', 'cs_unredact', 'update', 'node_encrypted', '{\"title\":\"New Title\",\"summary\":\"New Summary\",\"detail\":\"New Detail\",\"vaultId\":\"vault_open\"}', 'pending');",
+            [],
+        )?;
+
+        let input = ChangesetCommitInput {
+            changeset_id: "cs_unredact".to_string(),
+            item_actions: vec![ItemReviewAction {
+                item_id: "item_unredact".to_string(),
+                action: "accept".to_string(),
+                edited_data: None,
+            }],
+        };
+
+        // Committing with session key should succeed
+        let result = commit_changeset_transaction(&mut conn, &input, db_path, Some(key))?;
+        assert!(result);
+
+        // Verify the node was successfully updated and decrypted (no longer encrypted)
+        let (title, summary, detail, encrypted_payload, vault_id): (String, String, Option<String>, Option<String>, String) = conn.query_row(
+            "SELECT title, summary, detail, encrypted_payload, vault_id FROM nodes WHERE id = 'node_encrypted';",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        )?;
+
+        assert_eq!(title, "New Title");
+        assert_eq!(summary, "New Summary");
+        assert_eq!(detail, Some("New Detail".to_string()));
+        assert!(encrypted_payload.is_none() || encrypted_payload.as_deref() == Some(""));
+        assert_eq!(vault_id, "vault_open");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_update_changeset_node_unredact_locked_guard() -> Result<(), Box<dyn Error>> {
+        let mut conn = setup_test_db()?;
+
+        // Seed vaults
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_redacted', 'Redacted Vault', 'redacted');",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_open', 'Open Vault', 'open');",
+            [],
+        )?;
+
+        // Seed encrypted node
+        conn.execute(
+            "INSERT INTO nodes (id, vault_id, node_type, title, summary, detail, encrypted_payload)
+             VALUES ('node_encrypted', 'vault_redacted', 'concept', '[REDACTED]', '[Metadata Locked]', NULL, 'some-encrypted-payload');",
+            [],
+        )?;
+
+        let tx = conn.transaction()?;
+
+        // Call update_changeset_node to move node_encrypted to vault_open without session key
+        let res = update_changeset_node(
+            &tx,
+            "node_encrypted",
+            "vault_open",
+            "New Title",
+            "New Summary",
+            Some("New Detail"),
+            "concept",
+            None,
+            None,
+        );
+
+        let err = res.err().ok_or("Expected error from guard")?;
+        assert!(err.contains("Unlock redacted content with your master password before changing the node to a non-redacted tier."));
 
         Ok(())
     }
