@@ -44,12 +44,23 @@ fn insert_changeset_node(
         )
         .ok();
 
-    let (resolved_vault_id, resolved_sub_vault_id) = match parent_vault_id {
-        Some(parent_id) => (parent_id, Some(vault_id.to_string())),
-        None => (vault_id.to_string(), None),
+    let (resolved_vault_id, resolved_sub_vault_id, sub_vault_privacy) = match parent_vault_id {
+        Some(parent_id) => {
+            let sv_privacy: Option<String> = tx
+                .query_row(
+                    "SELECT privacy_tier FROM sub_vaults WHERE id = ?1 LIMIT 1;",
+                    [vault_id],
+                    |row| row.get(0),
+                )
+                .ok()
+                .flatten();
+            (parent_id, Some(vault_id.to_string()), sv_privacy)
+        }
+        None => (vault_id.to_string(), None, None),
     };
 
-    let effective_privacy = resolve_effective_privacy(tx, &resolved_vault_id, None)?;
+    let effective_privacy =
+        resolve_effective_privacy(tx, &resolved_vault_id, sub_vault_privacy.as_deref())?;
     let is_redacted = effective_privacy == "redacted";
 
     let encrypted_payload = if is_redacted {
@@ -158,12 +169,23 @@ fn update_changeset_node(
         )
         .ok();
 
-    let (resolved_vault_id, resolved_sub_vault_id) = match parent_vault_id {
-        Some(parent_id) => (parent_id, Some(vault_id.to_string())),
-        None => (vault_id.to_string(), None),
+    let (resolved_vault_id, resolved_sub_vault_id, sub_vault_privacy) = match parent_vault_id {
+        Some(parent_id) => {
+            let sv_privacy: Option<String> = tx
+                .query_row(
+                    "SELECT privacy_tier FROM sub_vaults WHERE id = ?1 LIMIT 1;",
+                    [vault_id],
+                    |row| row.get(0),
+                )
+                .ok()
+                .flatten();
+            (parent_id, Some(vault_id.to_string()), sv_privacy)
+        }
+        None => (vault_id.to_string(), None, None),
     };
 
-    let effective_privacy = resolve_effective_privacy(tx, &resolved_vault_id, None)?;
+    let effective_privacy =
+        resolve_effective_privacy(tx, &resolved_vault_id, sub_vault_privacy.as_deref())?;
     let is_redacted = effective_privacy == "redacted";
 
     let encrypted_payload = if is_redacted {
@@ -291,7 +313,13 @@ pub fn commit_changeset_transaction(
                 if let Some(vid) = target_vault_id {
                     let target_tier: String = conn
                         .query_row(
-                            "SELECT privacy_tier FROM vaults WHERE id = ?1 LIMIT 1;",
+                            "SELECT COALESCE(
+                                (SELECT COALESCE(sv.privacy_tier, v.privacy_tier)
+                                 FROM sub_vaults sv
+                                 JOIN vaults v ON sv.vault_id = v.id
+                                 WHERE sv.id = ?1),
+                                (SELECT privacy_tier FROM vaults WHERE id = ?1)
+                             );",
                             [vid],
                             |row| row.get(0),
                         )
@@ -1361,6 +1389,117 @@ mod tests {
             .err()
             .ok_or("Expected error due to missing target_node_id")?;
         assert!(err_msg.contains("Missing target_node_id"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_commit_node_to_redacted_subvault_under_open_parent_locked_fails(
+    ) -> Result<(), Box<dyn Error>> {
+        let mut conn = setup_test_db()?;
+        let db_path = Path::new("test.db");
+
+        // Seed parent vault (open)
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_parent', 'Parent Vault', 'open');",
+            [],
+        )?;
+
+        // Seed sub-vault (redacted override)
+        conn.execute(
+            "INSERT INTO sub_vaults (id, vault_id, privacy_tier) VALUES ('vault_sub', 'vault_parent', 'redacted');",
+            [],
+        )?;
+
+        // Seed changeset
+        conn.execute(
+            "INSERT INTO changesets (id, status, item_count) VALUES ('cs_sub_redacted', 'pending', 1);",
+            [],
+        )?;
+
+        // Seed changeset item targeting sub-vault
+        conn.execute(
+            "INSERT INTO changeset_items (id, changeset_id, item_type, proposed_data, status)
+             VALUES ('item_sub_redacted', 'cs_sub_redacted', 'add', '{\"title\":\"Secret Subvault Item\",\"vaultId\":\"vault_sub\"}', 'pending');",
+            [],
+        )?;
+
+        let input = ChangesetCommitInput {
+            changeset_id: "cs_sub_redacted".to_string(),
+            item_actions: vec![ItemReviewAction {
+                item_id: "item_sub_redacted".to_string(),
+                action: "accept".to_string(),
+                edited_data: None,
+            }],
+        };
+
+        // Try to commit without session key - should fail with VAULT_LOCKED
+        let result = commit_changeset_transaction(&mut conn, &input, db_path, None);
+        match result {
+            Err(err) => assert_eq!(err, "VAULT_LOCKED"),
+            Ok(_) => panic!("Expected error VAULT_LOCKED, but got Ok"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_commit_node_to_redacted_subvault_under_open_parent_unlocked_succeeds(
+    ) -> Result<(), Box<dyn Error>> {
+        let mut conn = setup_test_db()?;
+        let db_path = Path::new("test.db");
+
+        // Seed parent vault (open)
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_parent', 'Parent Vault', 'open');",
+            [],
+        )?;
+
+        // Seed sub-vault (redacted override)
+        conn.execute(
+            "INSERT INTO sub_vaults (id, vault_id, privacy_tier) VALUES ('vault_sub', 'vault_parent', 'redacted');",
+            [],
+        )?;
+
+        // Seed changeset
+        conn.execute(
+            "INSERT INTO changesets (id, status, item_count) VALUES ('cs_sub_redacted', 'pending', 1);",
+            [],
+        )?;
+
+        // Seed changeset item targeting sub-vault
+        conn.execute(
+            "INSERT INTO changeset_items (id, changeset_id, item_type, proposed_data, status)
+             VALUES ('item_sub_redacted', 'cs_sub_redacted', 'add', '{\"title\":\"Secret Subvault Item\",\"vaultId\":\"vault_sub\"}', 'pending');",
+            [],
+        )?;
+
+        let input = ChangesetCommitInput {
+            changeset_id: "cs_sub_redacted".to_string(),
+            item_actions: vec![ItemReviewAction {
+                item_id: "item_sub_redacted".to_string(),
+                action: "accept".to_string(),
+                edited_data: None,
+            }],
+        };
+
+        // Commit with session key - should succeed and encrypt the node title/summary
+        let key = [0_u8; 32];
+        let result = commit_changeset_transaction(&mut conn, &input, db_path, Some(key))?;
+        assert!(result);
+
+        // Verify the node was created under the correct vaults and is redacted
+        let (vault_id, sub_vault_id, title, summary, encrypted_payload): (String, Option<String>, String, String, Option<String>) = conn.query_row(
+            "SELECT vault_id, sub_vault_id, title, summary, encrypted_payload FROM nodes WHERE sub_vault_id = 'vault_sub' LIMIT 1;",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        )?;
+
+        assert_eq!(vault_id, "vault_parent");
+        assert_eq!(sub_vault_id, Some("vault_sub".to_string()));
+        assert_eq!(title, "[REDACTED]");
+        assert_eq!(summary, "[Metadata Locked]");
+        assert!(encrypted_payload.is_some());
+
         Ok(())
     }
 }
