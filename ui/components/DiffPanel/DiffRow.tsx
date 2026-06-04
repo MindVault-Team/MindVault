@@ -56,16 +56,15 @@ function diffLines(oldStr: string, newStr: string): DiffToken[] {
     return [{ type: "match", text: newStr }];
   }
 
-  const dp: number[][] = Array.from({ length: oldLines.length + 1 }, () =>
-    new Array(newLines.length + 1).fill(0)
-  );
+  const cols = newLines.length + 1;
+  const dp = new Int32Array((oldLines.length + 1) * cols);
 
   for (let i = 1; i <= oldLines.length; i++) {
     for (let j = 1; j <= newLines.length; j++) {
       if (oldLines[i - 1] === newLines[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1] + 1;
+        dp[i * cols + j] = dp[(i - 1) * cols + (j - 1)] + 1;
       } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        dp[i * cols + j] = Math.max(dp[(i - 1) * cols + j], dp[i * cols + (j - 1)]);
       }
     }
   }
@@ -79,7 +78,7 @@ function diffLines(oldStr: string, newStr: string): DiffToken[] {
       tokens.push({ type: "match", text: oldLines[i - 1] });
       i--;
       j--;
-    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+    } else if (j > 0 && (i === 0 || dp[i * cols + (j - 1)] >= dp[(i - 1) * cols + j])) {
       tokens.push({ type: "insert", text: newLines[j - 1] });
       j--;
     } else {
@@ -124,16 +123,15 @@ function diffWords(oldStr: string, newStr: string): DiffToken[] {
   const oldWords = cleanOld.split(/(\s+)/);
   const newWords = cleanNew.split(/(\s+)/);
 
-  const dp: number[][] = Array.from({ length: oldWords.length + 1 }, () =>
-    new Array(newWords.length + 1).fill(0)
-  );
+  const cols = newWords.length + 1;
+  const dp = new Int32Array((oldWords.length + 1) * cols);
 
   for (let i = 1; i <= oldWords.length; i++) {
     for (let j = 1; j <= newWords.length; j++) {
       if (oldWords[i - 1] === newWords[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1] + 1;
+        dp[i * cols + j] = dp[(i - 1) * cols + (j - 1)] + 1;
       } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        dp[i * cols + j] = Math.max(dp[(i - 1) * cols + j], dp[i * cols + (j - 1)]);
       }
     }
   }
@@ -147,7 +145,7 @@ function diffWords(oldStr: string, newStr: string): DiffToken[] {
       tokens.push({ type: "match", text: oldWords[i - 1] });
       i--;
       j--;
-    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+    } else if (j > 0 && (i === 0 || dp[i * cols + (j - 1)] >= dp[(i - 1) * cols + j])) {
       tokens.push({ type: "insert", text: newWords[j - 1] });
       j--;
     } else {
