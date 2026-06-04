@@ -418,33 +418,129 @@ pub fn commit_changeset_transaction(
                         .map_err(|err| format!("Failed to parse proposed properties: {err}"))?
                 };
 
-                let title = parsed_props
-                    .get("title")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let summary = parsed_props
-                    .get("summary")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let detail = parsed_props.get("detail").and_then(|v| v.as_str());
-                let node_type = parsed_props
+                let mut current_vault_id = None;
+                let mut current_title = None;
+                let mut current_summary = None;
+                let mut current_detail = None;
+                let mut current_node_type = None;
+                let mut current_tags = None;
+
+                if item_type == "update" {
+                    if let Some(ref nid) = target_node_id {
+                        // Load current node
+                        let (v_id, sub_v_id, t, s, d, n_type, enc_payload): (
+                            String,
+                            Option<String>,
+                            String,
+                            String,
+                            Option<String>,
+                            String,
+                            Option<String>,
+                        ) = tx
+                            .query_row(
+                                "SELECT vault_id, sub_vault_id, title, summary, detail, node_type, encrypted_payload FROM nodes WHERE id = ?1 AND deleted_at IS NULL;",
+                                [nid],
+                                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
+                            )
+                            .map_err(|err| match err {
+                                rusqlite::Error::QueryReturnedNoRows => {
+                                    format!("Node '{}' not found or already deleted", nid)
+                                }
+                                _ => format!("Failed fetching node for update fallback: {err}"),
+                            })?;
+
+                        // If redacted, decrypt to get the original values
+                        let (mut resolved_title, mut resolved_summary, mut resolved_detail) =
+                            (t, s, d);
+                        if let Some(ref enc_val) = enc_payload {
+                            if !enc_val.trim().is_empty() {
+                                let key = session_key.ok_or_else(|| "VAULT_LOCKED".to_string())?;
+                                let payload: redacted::NodeSecretPayload =
+                                    redacted::decrypt_json(enc_val, &key)?;
+                                resolved_title = payload.title;
+                                resolved_summary = payload.summary;
+                                resolved_detail = payload.detail;
+                            }
+                        }
+
+                        current_vault_id = Some(sub_v_id.unwrap_or(v_id));
+                        current_title = Some(resolved_title);
+                        current_summary = Some(resolved_summary);
+                        current_detail = resolved_detail;
+                        current_node_type = Some(n_type);
+
+                        // Load current tags
+                        let mut tag_stmt = tx.prepare(
+                            "SELECT t.name FROM node_tags nt JOIN tags t ON nt.tag_id = t.id WHERE nt.node_id = ?1;"
+                        ).map_err(|err| format!("Failed preparing tag fetch: {err}"))?;
+                        let tag_rows = tag_stmt
+                            .query_map([nid], |row| row.get::<_, String>(0))
+                            .map_err(|err| format!("Failed executing tag fetch: {err}"))?;
+                        let mut tags_vec = vec![];
+                        for tag_res in tag_rows {
+                            tags_vec
+                                .push(tag_res.map_err(|err| format!("Failed reading tag: {err}"))?);
+                        }
+                        current_tags = Some(tags_vec);
+                    }
+                }
+
+                let title_str = if let Some(val) = parsed_props.get("title") {
+                    val.as_str().unwrap_or("").to_string()
+                } else {
+                    current_title.unwrap_or_default()
+                };
+                let title = title_str.as_str();
+
+                let summary_str = if let Some(val) = parsed_props.get("summary") {
+                    val.as_str().unwrap_or("").to_string()
+                } else {
+                    current_summary.unwrap_or_default()
+                };
+                let summary = summary_str.as_str();
+
+                let detail_str = if parsed_props.get("detail").is_some() {
+                    parsed_props
+                        .get("detail")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                } else {
+                    current_detail
+                };
+                let detail = detail_str.as_deref();
+
+                let node_type_str = if let Some(val) = parsed_props
                     .get("nodeType")
                     .or_else(|| parsed_props.get("node_type"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("concept");
-                let vault_id = parsed_props
+                {
+                    val.as_str().unwrap_or("concept").to_string()
+                } else {
+                    current_node_type.unwrap_or_else(|| "concept".to_string())
+                };
+                let node_type = node_type_str.as_str();
+
+                let vault_id_str = if let Some(val) = parsed_props
                     .get("vaultId")
                     .or_else(|| parsed_props.get("vault_id"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("vault_root_graph");
-                let tags = parsed_props
-                    .get("tags")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|val| val.as_str().map(String::from))
-                            .collect::<Vec<String>>()
-                    });
+                {
+                    val.as_str().unwrap_or("vault_root_graph").to_string()
+                } else {
+                    current_vault_id.unwrap_or_else(|| "vault_root_graph".to_string())
+                };
+                let vault_id = vault_id_str.as_str();
+
+                let tags = if parsed_props.get("tags").is_some() {
+                    parsed_props
+                        .get("tags")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|val| val.as_str().map(String::from))
+                                .collect::<Vec<String>>()
+                        })
+                } else {
+                    current_tags
+                };
 
                 match item_type.as_str() {
                     "add" => {
@@ -1599,6 +1695,83 @@ mod tests {
             .err()
             .ok_or("Expected error due to stale target node")?;
         assert!(err_msg.contains("not found or already deleted"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_commit_update_preserves_omitted_fields() -> Result<(), Box<dyn Error>> {
+        let mut conn = setup_test_db()?;
+        let db_path = Path::new("test.db");
+
+        // Seed vault
+        conn.execute(
+            "INSERT INTO vaults (id, name, privacy_tier) VALUES ('vault_open', 'Open', 'open');",
+            [],
+        )?;
+
+        // Seed node
+        conn.execute(
+            "INSERT INTO nodes (id, vault_id, node_type, title, summary, detail, priority)
+             VALUES ('node_update', 'vault_open', 'custom_type', 'Original Title', 'Original Summary', 'Original Detail', '{}');",
+            [],
+        )?;
+
+        // Seed tags
+        conn.execute(
+            "INSERT INTO tags (id, name) VALUES ('tag_existing', 'Existing Tag');",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO node_tags (node_id, tag_id) VALUES ('node_update', 'tag_existing');",
+            [],
+        )?;
+
+        // Seed changeset
+        conn.execute(
+            "INSERT INTO changesets (id, status, item_count) VALUES ('cs_update_omitted', 'pending', 1);",
+            [],
+        )?;
+
+        // Seed changeset item with proposed data omitting detail, summary, nodeType, tags, vaultId
+        conn.execute(
+            "INSERT INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, status)
+             VALUES ('item_update_omitted', 'cs_update_omitted', 'update', 'node_update', '{\"title\":\"Updated Title\"}', 'pending');",
+            [],
+        )?;
+
+        let input = ChangesetCommitInput {
+            changeset_id: "cs_update_omitted".to_string(),
+            item_actions: vec![ItemReviewAction {
+                item_id: "item_update_omitted".to_string(),
+                action: "accept".to_string(),
+                edited_data: None,
+            }],
+        };
+
+        let result = commit_changeset_transaction(&mut conn, &input, db_path, None)?;
+        assert!(result);
+
+        // Verify the node was updated with new title but original values preserved for everything else
+        let (title, summary, detail, node_type, vault_id): (String, String, Option<String>, String, String) = conn.query_row(
+            "SELECT title, summary, detail, node_type, vault_id FROM nodes WHERE id = 'node_update';",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        )?;
+
+        assert_eq!(title, "Updated Title");
+        assert_eq!(summary, "Original Summary");
+        assert_eq!(detail, Some("Original Detail".to_string()));
+        assert_eq!(node_type, "custom_type");
+        assert_eq!(vault_id, "vault_open");
+
+        // Verify existing tags were preserved
+        let tag_name: String = conn.query_row(
+            "SELECT t.name FROM node_tags nt JOIN tags t ON nt.tag_id = t.id WHERE nt.node_id = 'node_update';",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(tag_name, "Existing Tag");
+
         Ok(())
     }
 }
