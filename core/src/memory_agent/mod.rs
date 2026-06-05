@@ -20,4 +20,4 @@ pub use similarity::{
     classify_similarity, compute_text_similarity, jaccard_similarity, tokenize, SimilarityClass,
     SIMILARITY_DUPLICATE, SIMILARITY_FLAG,
 };
-pub use trigger::{mark_extraction_complete, should_extract};
+pub use trigger::{align_last_extract_count, mark_extraction_complete, should_extract};

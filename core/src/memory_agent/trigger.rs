@@ -33,6 +33,20 @@ fn set_setting_int(conn: &Connection, key: &str, value: i64) -> Result<(), Strin
     Ok(())
 }
 
+/// Resets the last extraction message count to 0 if the chat history has been cleared or reset.
+pub fn align_last_extract_count(
+    conn: &Connection,
+    current_message_count: i64,
+) -> Result<(), String> {
+    let last_extract_message_count =
+        get_setting_int(conn, "memory_agent_last_extract_message_count")?;
+
+    if current_message_count < last_extract_message_count {
+        set_setting_int(conn, "memory_agent_last_extract_message_count", 0)?;
+    }
+    Ok(())
+}
+
 /// Evaluates whether a session is ready for background memory extraction.
 /// Returns true if the message count since the last extraction is >= 6
 /// AND the time since the last extraction is >= 2 minutes (120 seconds).
@@ -47,16 +61,10 @@ pub fn should_extract(conn: &Connection, session_id: &str) -> Result<bool, Strin
         .map_err(|err| format!("Failed querying session message count: {err}"))?;
 
     // 2. Retrieve last extracted count
-    let mut last_extract_message_count =
+    let last_extract_message_count =
         get_setting_int(conn, "memory_agent_last_extract_message_count")?;
 
-    // 3. Reset count tracking if the chat history has been cleared or reset
-    if current_message_count < last_extract_message_count {
-        set_setting_int(conn, "memory_agent_last_extract_message_count", 0)?;
-        last_extract_message_count = 0;
-    }
-
-    // 4. Compute message count difference
+    // 3. Compute message count difference
     let diff = current_message_count - last_extract_message_count;
     if diff < 6 {
         return Ok(false);
@@ -229,8 +237,15 @@ mod tests {
             "Expected fewer than 10 messages after deletion"
         );
 
-        // 5. Should NOT trigger extraction even though debounce has passed,
-        //    because no new messages were added.
+        // 5. Run alignment (should reset setting to 0 since 5 < 10)
+        align_last_extract_count(&conn, remaining)?;
+        assert_eq!(
+            get_setting_int(&conn, "memory_agent_last_extract_message_count")?,
+            0
+        );
+
+        // 6. Should NOT trigger extraction even though debounce has passed,
+        //    because no new messages were added (remaining 5 messages < 6 required).
         assert!(
             !should_extract(&conn, session_id)?,
             "Deleting messages should not trigger extraction"

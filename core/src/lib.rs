@@ -653,7 +653,10 @@ async fn memory_extract_if_ready(
         )
         .map_err(|err| format!("Failed querying session message count: {err}"))?;
 
-    // 4. Check trigger
+    // 4. Align last extract count if chat history was cleared/reset
+    memory_agent::trigger::align_last_extract_count(&conn, current_message_count)?;
+
+    // 5. Check trigger
     let ready = memory_agent::trigger::should_extract(&conn, session_id)?;
     if !ready {
         return Ok(None);
