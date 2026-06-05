@@ -16,6 +16,7 @@ interface ProposedData {
   detail?: string;
   tags?: string[];
   vaultId?: string;
+  vault_id?: string;
 }
 
 interface ExistingData {
@@ -24,6 +25,7 @@ interface ExistingData {
   detail?: string;
   tags?: string[];
   vaultId?: string;
+  vault_id?: string;
 }
 
 interface DiffToken {
@@ -315,7 +317,7 @@ export default function DiffRow({ item, onCommitItem }: DiffRowProps) {
             <div className="diff-card-section">
               <span className="diff-card-label">Target Vault</span>
               <span className="diff-text-value" style={{ fontSize: "0.8rem", color: "#bc6c25" }}>
-                📂 {proposed.vaultId || "unknown_vault"}
+                📂 {proposed.vaultId || proposed.vault_id || "unknown_vault"}
               </span>
             </div>
           </div>
