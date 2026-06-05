@@ -22,12 +22,14 @@ interface DiffPanelProps {
   onClose: () => void;
   activeChangesetId: string | null;
   onSelectChangeset: (id: string | null) => void;
+  onRefreshPendingCount?: () => void;
 }
 
 export default function DiffPanel({
   onClose,
   activeChangesetId,
   onSelectChangeset,
+  onRefreshPendingCount,
 }: DiffPanelProps) {
   const [activeTab, setActiveTab] = useState<"pending" | "history">("pending");
   const [searchQuery, setSearchQuery] = useState("");
@@ -64,6 +66,7 @@ export default function DiffPanel({
     try {
       await commitChangeset(input);
       setRefreshTrigger((prev) => prev + 1);
+      onRefreshPendingCount?.();
     } catch (err) {
       if (String(err).includes("VAULT_LOCKED")) {
         setLockedActionQueue(() => async () => {

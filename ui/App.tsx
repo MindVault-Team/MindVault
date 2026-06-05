@@ -742,6 +742,11 @@ function App() {
                 onClose={() => setIsDiffPanelOpen(false)}
                 activeChangesetId={selectedChangesetId}
                 onSelectChangeset={setSelectedChangesetId}
+                onRefreshPendingCount={() => {
+                  void countPendingChangesetItems()
+                    .then(setPendingProposalCount)
+                    .catch(console.error);
+                }}
               />
             )}
           </>
