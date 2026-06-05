@@ -57,6 +57,125 @@ fn greet(name: &str) -> IpcResponse<String> {
 }
 
 #[tauri::command]
+fn debug_seed_changeset(state: tauri::State<'_, DbState>) -> IpcResponse<bool> {
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = state;
+        IpcResponse::Err {
+            err: "Debug seed command is disabled in production builds.".to_string(),
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        let mut conn = match open_connection(&state.db_path) {
+            Ok(c) => c,
+            Err(e) => return IpcResponse::Err { err: e },
+        };
+
+        let tx = match conn.transaction() {
+            Ok(t) => t,
+            Err(e) => return IpcResponse::Err { err: e.to_string() },
+        };
+
+        let run_seed = || -> Result<(), rusqlite::Error> {
+            // Seed nodes
+            tx.execute(
+                "INSERT OR REPLACE INTO nodes (id, vault_id, title, summary, detail, node_type, version) VALUES \
+                ('node_update_test', 'vault_personal', 'Favorite Programming Language', 'User likes Rust programming', \
+                'Rust is a systems programming language focusing on safety and speed.', 'concept', 1);",
+                [],
+            )?;
+
+            tx.execute(
+                "INSERT OR REPLACE INTO nodes (id, vault_id, title, summary, detail, node_type, version) VALUES \
+                ('node_merge_test', 'vault_personal', 'MindVault Architectural Design', 'MindVault uses SQLite and Rust.', \
+                'The storage model uses rusqlite in the core backend.', 'concept', 1);",
+                [],
+            )?;
+
+            tx.execute(
+                "INSERT OR REPLACE INTO nodes (id, vault_id, title, summary, detail, node_type, version) VALUES \
+                ('node_delete_test', 'vault_personal', 'Temporary Scrap Node', 'This is a temporary scrap memory node.', \
+                'This node will be soft-deleted in tests.', 'concept', 1);",
+                [],
+            )?;
+
+            // Seed door
+            tx.execute(
+                "INSERT OR REPLACE INTO doors (id, source_node_id, target_node_id, status) VALUES \
+                ('door_orphan_test', 'node_update_test', 'node_delete_test', 'orphaned');",
+                [],
+            )?;
+
+            // Seed changeset
+            tx.execute(
+                "INSERT OR REPLACE INTO changesets (id, session_id, status, item_count, accepted_count, dismissed_count, model_used) VALUES \
+                ('cs_debug_all', 'test-session', 'pending', 5, 0, 0, 'dev-seed-model');",
+                [],
+            )?;
+
+            // Seed changeset items
+            tx.execute(
+                "INSERT OR REPLACE INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, existing_data, similarity, merge_with_id, door_id, status) VALUES \
+                ('item_add', 'cs_debug_all', 'add', NULL, \
+                '{\"title\":\"Indefinite Integral of x^3 * e^(x^2)\",\"summary\":\"Math exploration\",\"detail\":\"The user solved the integral using integration by parts.\",\"tags\":[\"math\",\"calculus\"],\"vaultId\":\"vault_personal\"}', \
+                '{}', NULL, NULL, NULL, 'pending');",
+                [],
+            )?;
+
+            tx.execute(
+                "INSERT OR REPLACE INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, existing_data, similarity, merge_with_id, door_id, status) VALUES \
+                ('item_update', 'cs_debug_all', 'update', 'node_update_test', \
+                '{\"title\":\"My Favorite Programming Language\",\"summary\":\"User highly prefers Rust coding\",\"detail\":\"Rust is a systems programming language focusing on memory safety, speed, and concurrency.\",\"tags\":[\"rust\",\"systems\",\"coding\"],\"vaultId\":\"vault_personal\"}', \
+                '{\"title\":\"Favorite Programming Language\",\"summary\":\"User likes Rust programming\",\"detail\":\"Rust is a systems programming language focusing on safety and speed.\",\"tags\":[\"rust\",\"coding\"],\"vaultId\":\"vault_personal\"}', \
+                0.85, NULL, NULL, 'pending');",
+                [],
+            )?;
+
+            tx.execute(
+                "INSERT OR REPLACE INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, existing_data, similarity, merge_with_id, door_id, status) VALUES \
+                ('item_merge', 'cs_debug_all', 'merge', 'node_merge_test', \
+                '{\"detail\":\"Memory Agent triggers debounced runs and compiles changesets into transactional items.\",\"tags\":[\"tauri\",\"architecture\"]}', \
+                '{\"title\":\"MindVault Architectural Design\",\"summary\":\"MindVault uses SQLite and Rust.\",\"detail\":\"The storage model uses rusqlite in the core backend.\",\"tags\":[\"sqlite\",\"architecture\"],\"vaultId\":\"vault_personal\"}', \
+                0.6, NULL, NULL, 'pending');",
+                [],
+            )?;
+
+            tx.execute(
+                "INSERT OR REPLACE INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, existing_data, similarity, merge_with_id, door_id, status) VALUES \
+                ('item_delete', 'cs_debug_all', 'delete', 'node_delete_test', \
+                '{\"summary\":\"The temporary scrap memory node is no longer needed since the session has ended.\"}', \
+                '{\"title\":\"Temporary Scrap Node\",\"summary\":\"This is a temporary scrap memory node.\",\"tags\":[\"scrap\"],\"vaultId\":\"vault_personal\"}', \
+                1.0, NULL, NULL, 'pending');",
+                [],
+            )?;
+
+            tx.execute(
+                "INSERT OR REPLACE INTO changeset_items (id, changeset_id, item_type, target_node_id, proposed_data, existing_data, similarity, merge_with_id, door_id, status) VALUES \
+                ('item_orphan', 'cs_debug_all', 'repoint_door', 'node_update_test', \
+                '{\"doorId\":\"door_orphan_test\",\"targetNodeId\":\"node_update_test\"}', \
+                '{}', NULL, NULL, 'door_orphan_test', 'pending');",
+                [],
+            )?;
+
+            Ok(())
+        };
+
+        match run_seed() {
+            Ok(_) => {
+                if let Err(e) = tx.commit() {
+                    IpcResponse::Err { err: e.to_string() }
+                } else {
+                    IpcResponse::Ok { ok: true }
+                }
+            }
+            Err(e) => IpcResponse::Err { err: e.to_string() },
+        }
+    }
+}
+
+#[tauri::command]
 async fn save_markdown_file(default_name: String, content: String) -> IpcResponse<bool> {
     if content.len() > 10_000_000 {
         return IpcResponse::Err {
@@ -464,26 +583,7 @@ pub async fn execute_memory_extraction_pipeline(
                 .map_err(|err| format!("Failed to commit transaction: {err}"))?;
 
             // Retrieve the newly persisted empty changeset
-            let cs = conn.query_row(
-                "SELECT id, session_id, status, item_count, accepted_count, dismissed_count, model_used, created_at, reviewed_at
-                 FROM changesets
-                 WHERE id = ?1 LIMIT 1;",
-                [changeset_id],
-                |row| {
-                    Ok(Changeset {
-                        id: row.get(0)?,
-                        session_id: row.get(1)?,
-                        status: row.get(2)?,
-                        item_count: row.get(3)?,
-                        accepted_count: row.get(4)?,
-                        dismissed_count: row.get(5)?,
-                        model_used: row.get(6)?,
-                        created_at: row.get(7)?,
-                        reviewed_at: row.get(8)?,
-                    })
-                },
-            )
-            .map_err(|err| format!("Failed to retrieve persisted empty changeset: {err}"))?;
+            let cs = memory_agent::persistence::get_changeset_by_id(&conn, &changeset_id)?;
 
             return Ok(cs);
         }
@@ -509,26 +609,7 @@ pub async fn execute_memory_extraction_pipeline(
     };
 
     // 8. Retrieve the newly persisted Changeset (reusing same connection)
-    let cs = conn.query_row(
-        "SELECT id, session_id, status, item_count, accepted_count, dismissed_count, model_used, created_at, reviewed_at
-         FROM changesets
-         WHERE id = ?1 LIMIT 1;",
-        [changeset_id],
-        |row| {
-            Ok(Changeset {
-                id: row.get(0)?,
-                session_id: row.get(1)?,
-                status: row.get(2)?,
-                item_count: row.get(3)?,
-                accepted_count: row.get(4)?,
-                dismissed_count: row.get(5)?,
-                model_used: row.get(6)?,
-                created_at: row.get(7)?,
-                reviewed_at: row.get(8)?,
-            })
-        },
-    )
-    .map_err(|err| format!("Failed to retrieve persisted changeset: {err}"))?;
+    let cs = memory_agent::persistence::get_changeset_by_id(&conn, &changeset_id)?;
 
     Ok(cs)
 }
@@ -572,7 +653,10 @@ async fn memory_extract_if_ready(
         )
         .map_err(|err| format!("Failed querying session message count: {err}"))?;
 
-    // 4. Check trigger
+    // 4. Align last extract count if chat history was cleared/reset
+    memory_agent::trigger::align_last_extract_count(&conn, current_message_count)?;
+
+    // 5. Check trigger
     let ready = memory_agent::trigger::should_extract(&conn, session_id)?;
     if !ready {
         return Ok(None);
@@ -614,6 +698,27 @@ fn changeset_list_items(
 ) -> Result<Vec<ChangesetItem>, String> {
     let conn = open_connection(&state.db_path)?;
     memory_agent::persistence::list_changeset_items(&conn, &changeset_id)
+}
+
+#[tauri::command]
+fn changeset_list_resolved(state: tauri::State<'_, AppState>) -> Result<Vec<Changeset>, String> {
+    let conn = open_connection(&state.db_path)?;
+    memory_agent::persistence::list_resolved_changesets(&conn)
+}
+
+#[tauri::command]
+async fn changeset_commit(
+    input: ipc_types::ChangesetCommitInput,
+    state: tauri::State<'_, AppState>,
+) -> Result<bool, String> {
+    let db_path = state.db_path.clone();
+    let session_key = redacted::get_session_key(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut conn = open_connection(&db_path)?;
+        memory_agent::commit_changeset_transaction(&mut conn, &input, &db_path, session_key)
+    })
+    .await
+    .map_err(|err| format!("Failed to spawn blocking changeset commit task: {err}"))?
 }
 
 fn sqlite_db_path<R: tauri::Runtime>(
@@ -701,7 +806,7 @@ pub fn enforce_backup_retention(backups_dir: &Path, max_backups: usize) -> Resul
         if name_str.starts_with("mindvault-pre-") && name_str.ends_with(".db") {
             if let Ok(metadata) = entry.metadata() {
                 if let Ok(modified) = metadata.modified() {
-                    files.push((modified, entry.path()));
+                    files.push((modified, entry.path(), metadata.len()));
                 }
             }
         }
@@ -710,9 +815,25 @@ pub fn enforce_backup_retention(backups_dir: &Path, max_backups: usize) -> Resul
     // Sort descending by modified time (newest first)
     files.sort_by_key(|b| std::cmp::Reverse(b.0));
 
-    if files.len() > max_backups {
-        for (_, path) in files.iter().skip(max_backups) {
+    let max_size = 50 * 1024 * 1024; // 50 MB
+    let mut current_size = 0u64;
+    let mut current_count = 0usize;
+    let mut limit_exceeded = false;
+
+    for (index, (_modified, path, size)) in files.iter().enumerate() {
+        if index == 0 {
+            // Always keep at least the newest backup file
+            current_size += size;
+            current_count += 1;
+            continue;
+        }
+
+        if limit_exceeded || current_size + size > max_size || current_count + 1 > max_backups {
+            limit_exceeded = true;
             let _ = fs::remove_file(path);
+        } else {
+            current_size += size;
+            current_count += 1;
         }
     }
 
@@ -3403,7 +3524,10 @@ pub fn run() {
             memory_extract_if_ready,
             changeset_count_pending,
             changeset_list_pending,
-            changeset_list_items
+            changeset_list_items,
+            changeset_commit,
+            changeset_list_resolved,
+            debug_seed_changeset
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {

@@ -13,3 +13,5 @@ export type { TagCreateInput } from "./TagCreateInput";
 export type { Vault } from "./Vault";
 export type { VaultCreateInput } from "./VaultCreateInput";
 export type { VaultUpdateInput } from "./VaultUpdateInput";
+export type { ChangesetCommitInput } from "./ChangesetCommitInput";
+export type { ItemReviewAction } from "./ItemReviewAction";

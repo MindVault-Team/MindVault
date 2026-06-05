@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use ts_rs::TS;
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -272,6 +273,7 @@ pub struct Changeset {
     pub model_used: Option<String>,
     pub created_at: String,
     pub reviewed_at: Option<String>,
+    pub summary: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -291,6 +293,26 @@ pub struct ChangesetItem {
     pub reviewed_at: Option<String>,
     #[ts(type = "number")]
     pub sort_order: i64,
+    pub cross_vault_anomaly: bool,
+    pub anomaly_warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../ui/types/generated/")]
+pub struct ChangesetCommitInput {
+    pub changeset_id: String,
+    pub item_actions: Vec<ItemReviewAction>,
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../ui/types/generated/")]
+pub struct ItemReviewAction {
+    pub item_id: String,
+    pub action: String, // "accept", "dismiss", "edit"
+    #[ts(type = "unknown")]
+    pub edited_data: Option<Value>, // Typed JSON properties for edit payload
 }
 
 #[cfg(test)]
@@ -343,6 +365,12 @@ mod tests {
         }
         if let Err(err) = ChangesetItem::export() {
             panic!("failed to export ChangesetItem: {err}");
+        }
+        if let Err(err) = ChangesetCommitInput::export() {
+            panic!("failed to export ChangesetCommitInput: {err}");
+        }
+        if let Err(err) = ItemReviewAction::export() {
+            panic!("failed to export ItemReviewAction: {err}");
         }
     }
 }

@@ -6,6 +6,10 @@ import {
   changesetListPending,
   changesetListItems,
   type ChangesetItem,
+  changesetCommit,
+  type ChangesetCommitInput,
+  changesetListResolved,
+  debugSeedChangeset,
 } from "../ipc";
 import { clearNodesCache } from "./nodes";
 import { unwrapIpcResult } from "./ipcResult";
@@ -59,6 +63,33 @@ export async function listChangesetItems(changesetId: string): Promise<Changeset
   return unwrapIpcResult(changesetListItems(changesetId));
 }
 
+/**
+ * Commits reviews/edits to a changeset.
+ */
+export async function commitChangeset(input: ChangesetCommitInput): Promise<boolean> {
+  const result = await unwrapIpcResult(changesetCommit(input));
+  clearNodesCache();
+  return result;
+}
+
+/**
+ * Lists all resolved changesets.
+ */
+export async function listResolvedChangesets(): Promise<Changeset[]> {
+  return unwrapIpcResult(changesetListResolved());
+}
+
+/**
+ * Seeds a test changeset with ADD, UPDATE, MERGE, DELETE, and ORPHAN proposals.
+ */
+export async function seedTestChangeset(): Promise<boolean> {
+  const result = await unwrapIpcResult(debugSeedChangeset());
+  if (result && typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("mindvault-changeset-seeded"));
+  }
+  return result;
+}
+
 // Expose temporary debug helpers on window for manual console testing only in development builds
 if (typeof window !== "undefined" && import.meta.env.DEV) {
   const w = window as unknown as Record<string, unknown>;
@@ -82,5 +113,14 @@ if (typeof window !== "undefined" && import.meta.env.DEV) {
   };
   w.testListChangesetItems = (changesetId: string) => {
     return listChangesetItems(changesetId).then(console.log).catch(console.error);
+  };
+  w.testCommitChangeset = (input: ChangesetCommitInput) => {
+    return commitChangeset(input).then(console.log).catch(console.error);
+  };
+  w.testListResolvedChangesets = () => {
+    return listResolvedChangesets().then(console.log).catch(console.error);
+  };
+  w.testSeedTestChangeset = () => {
+    return seedTestChangeset().then(console.log).catch(console.error);
   };
 }

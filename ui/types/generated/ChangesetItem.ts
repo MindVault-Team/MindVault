@@ -13,4 +13,6 @@ export type ChangesetItem = {
   status: string;
   reviewedAt: string | null;
   sortOrder: number;
+  crossVaultAnomaly: boolean;
+  anomalyWarning: string | null;
 };

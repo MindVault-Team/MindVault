@@ -15,6 +15,7 @@ import type {
   Vault,
   VaultCreateInput,
   VaultUpdateInput,
+  ChangesetCommitInput,
 } from "./types/generated";
 import { getMockInvoker } from "./ipcMockState.ts";
 
@@ -42,6 +43,7 @@ export type {
   Vault,
   VaultCreateInput,
   VaultUpdateInput,
+  ChangesetCommitInput,
 };
 
 async function invokeTyped<T>(
@@ -313,4 +315,22 @@ export function changesetListItems(changesetId: string) {
   return invoke<ChangesetItem[]>("changeset_list_items", { changesetId })
     .then((ok) => ({ ok }) as IpcResult<ChangesetItem[]>)
     .catch((error) => ({ err: String(error) }) as IpcResult<ChangesetItem[]>);
+}
+
+export function changesetCommit(input: ChangesetCommitInput) {
+  return invoke<boolean>("changeset_commit", { input })
+    .then((ok) => ({ ok }) as IpcResult<boolean>)
+    .catch((error) => ({ err: String(error) }) as IpcResult<boolean>);
+}
+
+export function changesetListResolved() {
+  return invoke<Changeset[]>("changeset_list_resolved")
+    .then((ok) => ({ ok }) as IpcResult<Changeset[]>)
+    .catch((error) => ({ err: String(error) }) as IpcResult<Changeset[]>);
+}
+
+export function debugSeedChangeset() {
+  return invoke<boolean>("debug_seed_changeset")
+    .then((ok) => ({ ok }) as IpcResult<boolean>)
+    .catch((error) => ({ err: String(error) }) as IpcResult<boolean>);
 }
