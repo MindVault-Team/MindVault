@@ -8,22 +8,7 @@ import {
   TbFileCheck,
 } from "react-icons/tb";
 import katex from "katex";
-
-// Allowlist-based URL sanitizer to prevent javascript: and data: XSS via \href{}
-function sanitizeHrefUrl(raw: string): string {
-  const trimmed = raw.trim();
-  try {
-    const parsed = new URL(trimmed, window.location.href);
-    const safeProtocols = ["http:", "https:", "mailto:"];
-    if (safeProtocols.includes(parsed.protocol)) {
-      return parsed.href;
-    }
-  } catch {
-    // Not a valid URL — fall through
-  }
-  // Block unsafe or malformed URLs entirely
-  return "about:blank";
-}
+import { sanitizeHrefUrl } from "../utils/markdownUtils";
 
 interface LatexBlockProps {
   code: string;

@@ -153,6 +153,22 @@ export function isRawLatex(text: string): boolean {
   return trimmed.includes("\\documentclass") || trimmed.includes("\\begin{document}");
 }
 
+// Allowlist-based URL sanitizer to prevent javascript: and data: XSS via \href{}
+export function sanitizeHrefUrl(raw: string): string {
+  const trimmed = raw.trim();
+  try {
+    const parsed = new URL(trimmed, window.location.href);
+    const safeProtocols = ["http:", "https:", "mailto:"];
+    if (safeProtocols.includes(parsed.protocol)) {
+      return parsed.href;
+    }
+  } catch {
+    // Not a valid URL — fall through
+  }
+  // Block unsafe or malformed URLs entirely
+  return "about:blank";
+}
+
 /** Normalizes LaTeX math delimiters like \[ ... \] and \( ... \) into standard $$ and $ formats for ReactMarkdown */
 export function preprocessMathDelimiters(text: string): string {
   if (!text) return "";
@@ -221,7 +237,7 @@ export function createMarkdownComponents(
         );
       }
       return (
-        <a href={href} {...props}>
+        <a href={href ? sanitizeHrefUrl(href) : href} {...props}>
           {children}
         </a>
       );
