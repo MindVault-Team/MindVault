@@ -527,6 +527,34 @@ function App() {
                     </button>
                   </div>
                 )}
+                {/* Decoupled chat panel, persists regardless of viewmode */}
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    display: viewMode === "chat" ? "flex" : "none",
+                    flexDirection: "column",
+                    pointerEvents: viewMode === "chat" ? "auto" : "none",
+                    overflow: "hidden",
+                  }}
+                >
+                  <ChatPanel
+                    selectedNodeIds={scopeNodeIds}
+                    scope={assemblerScope}
+                    selectedVaultId={selectedVaultId}
+                    onSelectVault={onSelectVault}
+                    onOpenSettings={onOpenSettings}
+                    isRedactedUnlocked={isRedactedUnlocked}
+                    onModalToggle={setChatModalOpen}
+                    onSelectNode={onSelectNode}
+                    onRefreshPendingCount={() => {
+                      void countPendingChangesetItems()
+                        .then(setPendingProposalCount)
+                        .catch(console.error);
+                    }}
+                  />
+                </div>
+
                 {viewMode === "editor" ? (
                   selectedNodeId && (
                     <NodeEditorExpanded
@@ -558,23 +586,7 @@ function App() {
                     isLeftPanePinned={leftPanePinned}
                     onLeftPanePinChange={setLeftPanePinned}
                   />
-                ) : (
-                  <ChatPanel
-                    selectedNodeIds={scopeNodeIds}
-                    scope={assemblerScope}
-                    selectedVaultId={selectedVaultId}
-                    onSelectVault={onSelectVault}
-                    onOpenSettings={onOpenSettings}
-                    isRedactedUnlocked={isRedactedUnlocked}
-                    onModalToggle={setChatModalOpen}
-                    onSelectNode={onSelectNode}
-                    onRefreshPendingCount={() => {
-                      void countPendingChangesetItems()
-                        .then(setPendingProposalCount)
-                        .catch(console.error);
-                    }}
-                  />
-                )}
+                ) : null}
               </section>
 
               {viewMode !== "editor" && (
