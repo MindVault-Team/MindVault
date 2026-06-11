@@ -1453,3 +1453,22 @@
 .header-action-icon-btn:active {
   transform: translateY(0);
 }
+
+.wikilink-badge.broken {
+  opacity: 0.65;
+  text-decoration: line-through;
+  color: #e53e3e;
+  border-color: #fc8181;
+  background: rgba(245, 101, 101, 0.08);
+  cursor: not-allowed;
+}
+
+.wikilink-badge.broken:hover {
+  background: rgba(245, 101, 101, 0.12);
+  border-color: #f56565;
+}
+
+.wikilink-badge.loading {
+  opacity: 0.7;
+  cursor: wait;
+}

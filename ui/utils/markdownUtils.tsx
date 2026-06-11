@@ -165,7 +165,95 @@ export function preprocessMathDelimiters(text: string): string {
   processed = processed.replace(/\\\\\)/g, "$").replace(/\\\)/g, "$");
   return processed;
 }
+function WikiLinkBadge({
+  nodeId,
+  children,
+  onSelectNode,
+}: {
+  nodeId: string;
+  children: React.ReactNode;
+  onSelectNode?: (nodeId: string) => void;
+}) {
+  const [nodeExists, setNodeExists] = React.useState<boolean | null>(null);
+  const isSearchQuery = nodeId.startsWith("search:");
 
+  // Validate node existence on mount (skip for search queries)
+  React.useEffect(() => {
+    if (isSearchQuery) {
+      return; // Don't validate search queries
+    }
+
+    let isMounted = true;
+
+    getAllNodes()
+      .then((nodes) => {
+        if (isMounted) {
+          const exists = nodes.some((n) => n.id === nodeId);
+          setNodeExists(exists);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setNodeExists(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [nodeId, isSearchQuery]);
+
+  const isBroken = nodeExists === false;
+  const isLoading = nodeExists === null && !isSearchQuery;
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (isBroken) {
+      alert(
+        `⚠️ Broken Node Connection\n\nThe node "${children}" no longer exists in your vault.\n\nYou may need to:\n• Remove this link\n• Create a matching node with this title`
+      );
+      return;
+    }
+
+    if (onSelectNode) {
+      if (isSearchQuery) {
+        const query = nodeId.substring(7).trim();
+        getAllNodes()
+          .then((nodes) => {
+            const match = nodes.find((n) => n.title.toLowerCase().trim() === query.toLowerCase());
+            if (match) {
+              onSelectNode(match.id);
+            } else {
+              alert(`⚠️ Node Not Found\n\nNo node with title "${query}" exists in your vault.`);
+            }
+          })
+          .catch((err) => console.error("Failed to query nodes for wikilink:", err));
+      } else {
+        onSelectNode(nodeId);
+      }
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      className={`wikilink-badge ${isBroken ? "broken" : ""} ${isLoading ? "loading" : ""}`}
+      onClick={handleClick}
+      title={
+        isBroken
+          ? `Broken link: Node "${children}" not found`
+          : isSearchQuery
+            ? `Search/Navigate to: ${children}`
+            : `Navigate to: ${children}`
+      }
+      disabled={isLoading}
+    >
+      <span className="wikilink-badge-icon">{isBroken ? "⚠️" : "↗"}</span> {children}
+    </button>
+  );
+}
 /**
  * Creates stable markdown components overrides
  */
@@ -184,40 +272,9 @@ export function createMarkdownComponents(
             ?.split(/[?#]/)[0] || "";
         const decodedNodeId = decodeURIComponent(nodeId);
         return (
-          <button
-            type="button"
-            className="wikilink-badge"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              if (onSelectNode) {
-                if (decodedNodeId.startsWith("search:")) {
-                  const query = decodedNodeId.substring(7).trim();
-                  getAllNodes()
-                    .then((nodes) => {
-                      const match = nodes.find(
-                        (n) => n.title.toLowerCase().trim() === query.toLowerCase()
-                      );
-                      if (match) {
-                        onSelectNode(match.id);
-                      } else {
-                        console.warn(`Node with title "${query}" not found in current vault.`);
-                      }
-                    })
-                    .catch((err) => console.error("Failed to query nodes for wikilink:", err));
-                } else {
-                  onSelectNode(decodedNodeId);
-                }
-              }
-            }}
-            title={
-              decodedNodeId.startsWith("search:")
-                ? `Search/Navigate to: ${children}`
-                : `Navigate to: ${children}`
-            }
-          >
-            <span className="wikilink-badge-icon">↗</span> {children}
-          </button>
+          <WikiLinkBadge nodeId={decodedNodeId} onSelectNode={onSelectNode}>
+            {children}
+          </WikiLinkBadge>
         );
       }
       return (
