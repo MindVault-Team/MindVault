@@ -4,6 +4,7 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chat::ChatMessage;
+use rusqlite::OptionalExtension;
 use rusqlite::{params, Connection, Row};
 use serde::Serialize;
 use tauri::Manager;
@@ -629,6 +630,22 @@ async fn memory_extract(
     execute_memory_extraction_pipeline(provider, endpoint, model, db_path).await
 }
 
+fn fetch_latest_user_message(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT content FROM session_messages
+         WHERE session_id = ?1 AND role = 'user'
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1;",
+        [session_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|err| format!("Failed querying latest user message: {err}"))
+}
+
 #[tauri::command]
 async fn memory_extract_if_ready(
     provider: String,
@@ -657,7 +674,18 @@ async fn memory_extract_if_ready(
     memory_agent::trigger::align_last_extract_count(&conn, current_message_count)?;
 
     // 5. Check trigger
-    let ready = memory_agent::trigger::should_extract(&conn, session_id)?;
+    let mut ready = memory_agent::trigger::should_extract(&conn, session_id)?;
+    if !ready {
+        let latest_user_msg = fetch_latest_user_message(&conn, session_id)?;
+        if let Some(msg_content) = latest_user_msg {
+            let correction_ready =
+                memory_agent::trigger::should_extract_correction(&conn, session_id, &msg_content)?;
+            if correction_ready {
+                ready = true;
+            }
+        }
+    }
+
     if !ready {
         return Ok(None);
     }
