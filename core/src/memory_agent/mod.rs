@@ -1,4 +1,4 @@
-pub mod ammendment;
+pub mod amendment;
 pub mod changeset;
 pub mod commit;
 pub mod correction;
@@ -7,7 +7,7 @@ pub mod persistence;
 pub mod prompt;
 pub mod similarity;
 pub mod trigger;
-pub use ammendment::amend_or_create_changeset;
+pub use amendment::amend_or_create_changeset;
 pub use changeset::{build_changeset, ChangesetItemType, PendingChangeset, PendingChangesetItem};
 pub use commit::commit_changeset_transaction;
 pub use correction::{detect_correction_signal, has_correction_signal, CorrectionSignal};

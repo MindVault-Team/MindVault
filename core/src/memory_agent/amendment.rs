@@ -156,8 +156,7 @@ fn find_pending_changeset(
 
     if let Some(row) = rows.next().map_err(|e| format!("Database error: {}", e))? {
         let id: String = row.get(0).map_err(|e| format!("Database error: {}", e))?;
-        let content: String = row.get(1).map_err(|e| format!("Database error: {}", e))?;
-        Ok(Some((id, content)))
+        Ok(Some((id, String::new())))
     } else {
         Ok(None)
     }
@@ -294,15 +293,21 @@ pub fn amend_or_create_changeset(
             let proposed_json = serde_json::to_string(&candidate_data)
                 .map_err(|e| format!("JSON serialization error: {}", e))?;
 
+            let item_type = match candidate.action {
+                crate::memory_agent::CandidateAction::Add => "add",
+                crate::memory_agent::CandidateAction::Update => "update",
+                crate::memory_agent::CandidateAction::Delete => "delete",
+            };
+
             tx.execute(
                 "INSERT INTO changeset_items
-                     (id, changeset_id, proposed_data, reviewed_at, sort_order)
-                 VALUES (?1, ?2, ?3, NULL,
+                     (id, changeset_id, item_type, proposed_data, reviewed_at, sort_order)
+                 VALUES (?1, ?2, ?3, ?4, NULL,
                      COALESCE(
                          (SELECT MAX(sort_order) + 1 FROM changeset_items WHERE changeset_id = ?2),
                          0
                      ))",
-                params![new_item_id, existing_id, proposed_json],
+                params![new_item_id, existing_id, item_type, proposed_json],
             )
             .map_err(|e| format!("Failed to insert new changeset_item: {}", e))?;
 

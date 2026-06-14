@@ -40,6 +40,8 @@ export default function DiffPanel({
   const [error, setError] = useState<string | null>(null);
   const [isClosing, setIsClosing] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [isAmended, setIsAmended] = useState(false);
+  const [amendedAt, setAmendedAt] = useState<string | null>(null);
   const [drawerWidth, setDrawerWidth] = useState<number>(() => {
     try {
       const saved = localStorage.getItem("mindvault-diff-panel-width");
@@ -301,6 +303,8 @@ export default function DiffPanel({
     const parsed = parseJSON(item.proposedData);
     const summary = (parsed.summary || "").toLowerCase();
     const detail = (parsed.detail || "").toLowerCase();
+    setIsAmended(parsed._amended != null);
+    setAmendedAt(isAmended ? parsed._amended.at : null);
     const matchSearch =
       title.includes(searchQuery.toLowerCase()) ||
       summary.includes(searchQuery.toLowerCase()) ||
@@ -599,6 +603,11 @@ export default function DiffPanel({
                           }}
                         >
                           <DiffRow item={item} onCommitItem={handleCommitItem} />
+                          {isAmended && (
+                            <span className="diff-amended-badge" title={`Amended at ${amendedAt}`}>
+                              (amended)
+                            </span>
+                          )}
                         </div>
                       ))}
                     </div>

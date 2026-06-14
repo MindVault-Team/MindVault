@@ -607,7 +607,7 @@ pub async fn execute_memory_extraction_pipeline(
                 })
         };
 
-        let (id, _amended) = memory_agent::ammendment::amend_or_create_changeset(
+        let (id, _amended) = memory_agent::amendment::amend_or_create_changeset(
             &mut conn,
             &candidates,
             "default-session",
@@ -3619,4 +3619,20 @@ async fn memory_extract_force(
     memory_agent::trigger::mark_extraction_complete(&conn, count)?;
 
     result
+}
+
+pub async fn test_helper_memory_extract_force(
+    provider: String,
+    endpoint: String,
+    model: String,
+    db_path: std::path::PathBuf,
+) -> Result<ipc_types::Changeset, String> {
+    use tauri::Manager;
+    let app = tauri::test::mock_app();
+    app.manage(DbState {
+        db_path,
+        redacted_session_key: std::sync::Mutex::new(None),
+    });
+    let state = app.state::<DbState>();
+    memory_extract_force(provider, endpoint, model, state).await
 }
