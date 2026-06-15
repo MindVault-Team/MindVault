@@ -1,10 +1,10 @@
-# About MindVault
+# About Amber
 
 Modern LLM interfaces are **stateless** by default. Every new conversation starts cold, and the current workarounds such as **forcing huge context windows** or **flat RAG pipelines** are token-expensive, hallucinatory, and **horrible for privacy**.
 
-MindVault is a desktop-native knowledge architecture that acts as a persistent, structured, and **token-efficient memory** layer for local and cloud-hosted LLMs.
+Amber is a desktop-native knowledge architecture that acts as a persistent, structured, and **token-efficient memory** layer for local and cloud-hosted LLMs.
 
-MindVault does not just store personal memory as a huge number of text files rather it organizes knowledge into a set of specialized **Vaults**. When a query is made, a set of **Multi-Agent Collaborative Reinforcement Learning (MACRL)** routing agents extracts the intended context and pulls only relevant information straying across domain boundaries with a set of **Doors** while removing outdated information.
+Amber does not just store personal memory as a huge number of text files rather it organizes knowledge into a set of specialized **Vaults**. When a query is made, a set of **Multi-Agent Collaborative Reinforcement Learning (MACRL)** routing agents extracts the intended context and pulls only relevant information straying across domain boundaries with a set of **Doors** while removing outdated information.
 
 > The goal is not to give an AI a bigger context window, but to give it a better-shaped one.
 
@@ -41,7 +41,7 @@ flowchart TD
     Canvas --> Intent
     
     %% 3. Retrieval
-    subgraph Storage [MindVault Local Graph]
+    subgraph Storage [Amber Local Graph]
         direction TB
         Root[("Root Graph (Always Loaded)")]:::memory
         Vaults[("Scoped Vaults (e.g., Coding)")]:::memory
@@ -142,7 +142,7 @@ cargo test
 
 ## Before committing
 
-MindVault uses a single cross-platform preflight gate that matches CI.
+Amber uses a single cross-platform preflight gate that matches CI.
 
 ### Windows (PowerShell) / macOS / Linux (bash) 
 
@@ -162,7 +162,7 @@ npm run preflight
 ```
 
 ## Community
-Join our [Discord Server](https://discord.gg/UYhqRHbH4M) to discuss features, get help with local LLM setups, report bugs, and chat with other MindVault contributors!
+Join our [Discord Server](https://discord.gg/UYhqRHbH4M) to discuss features, get help with local LLM setups, report bugs, and chat with other Amber contributors!
 
 ## License
 This project is licensed under the AGPLv3 License - see the LICENSE file for details.
