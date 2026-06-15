@@ -713,6 +713,7 @@ async fn memory_extract_if_ready(
 
     // 5. Check trigger
     let mut ready = memory_agent::trigger::should_extract(&conn, session_id)?;
+    let mut is_correction = false;
     if !ready {
         let latest_user_msg = fetch_latest_user_message(&conn, session_id)?;
         if let Some(msg_content) = latest_user_msg {
@@ -720,6 +721,7 @@ async fn memory_extract_if_ready(
                 memory_agent::trigger::should_extract_correction(&conn, session_id, &msg_content)?;
             if correction_ready {
                 ready = true;
+                is_correction = true;
             }
         }
     }
@@ -733,8 +735,14 @@ async fn memory_extract_if_ready(
 
     // 5. Execute shared pipeline (capture result without early-returning on error,
     //    so we always mark the extraction as attempted and respect cooldown windows)
-    let pipeline_result =
-        execute_memory_extraction_pipeline(provider, endpoint, model, db_path.clone(), None).await;
+    let pipeline_result = execute_memory_extraction_pipeline(
+        provider,
+        endpoint,
+        model,
+        db_path.clone(),
+        Some(is_correction),
+    )
+    .await;
 
     // 6. Mark extraction complete/attempted *before* propagating any error,
     //    so that should_extract respects the 6-message and 2-minute cooldown
