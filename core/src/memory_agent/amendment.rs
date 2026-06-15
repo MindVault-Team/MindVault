@@ -89,32 +89,22 @@ fn candidate_fingerprint(proposed_data: &serde_json::Value) -> String {
 /// IndexMap is enabled (explicit prepend).
 ///
 /// Only called on the UPDATE (similarity-match) path — new inserts stay clean.
+/// The caller always passes a valid JSON object, so this mutates in-place.
 fn stamp_amended(
-    proposed_data: serde_json::Value,
+    proposed_data: &mut serde_json::Value,
     similarity: f64,
     correction_signal: &crate::memory_agent::CorrectionSignal,
-) -> Result<serde_json::Value, String> {
-    let obj = proposed_data
-        .as_object()
-        .ok_or_else(|| "proposed_data is not a JSON object".to_string())?;
-
-    let mut ordered = serde_json::Map::new();
-
-    // Insert `_amended` first so it leads the object regardless of feature flags.
-    ordered.insert(
-        "_amended".to_string(),
-        serde_json::json!({
-            "at":         chrono_now_iso(),
-            "similarity": similarity,
-            "reason":     format!("{:?}", correction_signal),
-        }),
-    );
-
-    for (k, v) in obj.iter() {
-        ordered.insert(k.clone(), v.clone());
+) {
+    if let Some(obj) = proposed_data.as_object_mut() {
+        obj.insert(
+            "_amended".to_string(),
+            serde_json::json!({
+                "at":         chrono_now_iso(),
+                "similarity": similarity,
+                "reason":     format!("{:?}", correction_signal),
+            }),
+        );
     }
-
-    Ok(serde_json::Value::Object(ordered))
 }
 
 /// Finds the most-recent pending changeset for a (session_id, model) pair.
@@ -239,7 +229,7 @@ pub fn amend_or_create_changeset(
             .to_string();
 
         // Build the base proposed_data for this candidate.
-        let candidate_data = serde_json::json!({
+        let mut candidate_data = serde_json::json!({
             "title":            candidate.title,
             "summary":          candidate.summary,
             "detail":           candidate.detail,
@@ -273,10 +263,9 @@ pub fn amend_or_create_changeset(
             //
             // Stamp `_amended` metadata so the Diff Panel can render the
             // (amended) badge without a schema migration.
-            let amended_data = stamp_amended(candidate_data, similarity, correction_signal)
-                .map_err(|e| format!("Failed to stamp _amended on item {}: {}", matched_id, e))?;
+            stamp_amended(&mut candidate_data, similarity, correction_signal);
 
-            let proposed_json = serde_json::to_string(&amended_data)
+            let proposed_json = serde_json::to_string(&candidate_data)
                 .map_err(|e| format!("JSON serialization error: {}", e))?;
 
             let item_type = match candidate.action {
