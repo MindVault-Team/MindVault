@@ -335,6 +335,7 @@ type ChatPanelProps = {
   onRefreshPendingCount?: () => void;
   isRedactedUnlocked: boolean;
   nodeRefreshKey?: number;
+  visible?: boolean;
 };
 
 function ChatPanel({
@@ -348,6 +349,7 @@ function ChatPanel({
   onRefreshPendingCount,
   isRedactedUnlocked,
   nodeRefreshKey,
+  visible = true,
 }: ChatPanelProps) {
   const MAX_RENDERED_MESSAGES = 60;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -361,6 +363,7 @@ function ChatPanel({
   const [existingNodeIds, setExistingNodeIds] = useState<Set<string> | null>(null);
 
   useEffect(() => {
+    if (!visible) return;
     let active = true;
     clearNodesCache();
     getAllNodes(isRedactedUnlocked)
@@ -375,7 +378,7 @@ function ChatPanel({
     return () => {
       active = false;
     };
-  }, [nodeRefreshKey, isRedactedUnlocked]);
+  }, [nodeRefreshKey, isRedactedUnlocked, visible]);
 
   const [userName, setUserName] = useState("Lisa");
   const [vaults, setVaults] = useState<Vault[]>([]);

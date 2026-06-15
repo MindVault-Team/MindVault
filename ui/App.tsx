@@ -563,6 +563,7 @@ function App() {
                     onModalToggle={setChatModalOpen}
                     onSelectNode={onSelectNode}
                     nodeRefreshKey={nodeRefreshKey}
+                    visible={viewMode === "chat"}
                     onRefreshPendingCount={() => {
                       void countPendingChangesetItems()
                         .then(setPendingProposalCount)
