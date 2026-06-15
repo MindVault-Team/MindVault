@@ -604,7 +604,12 @@ pub async fn execute_memory_extraction_pipeline(
                 .map(|m| m.content.as_str());
 
             let pending_data: Vec<String> = conn
-                .prepare("SELECT proposed_data FROM changeset_items WHERE status = 'pending';")
+                .prepare(
+                    "SELECT ci.proposed_data \
+                     FROM changeset_items ci \
+                     JOIN changesets c ON ci.changeset_id = c.id \
+                     WHERE ci.status = 'pending' AND c.session_id = 'default-session';",
+                )
                 .map_err(|err| format!("Failed preparing pending changeset query: {err}"))?
                 .query_map([], |row| row.get(0))
                 .map_err(|err| format!("Failed querying pending changeset items: {err}"))?
