@@ -529,6 +529,10 @@ function NodeEditor({
     return null;
   }, [node]);
 
+  const existingNodeIds = useMemo(() => {
+    return new Set(Object.keys(allNodesMap));
+  }, [allNodesMap]);
+
   const normalizedTagInput = tagInput.trim().toLowerCase();
 
   const filteredTagOptions = useMemo(() => {
@@ -1069,6 +1073,8 @@ function NodeEditor({
                   onSelectNode={onSelectNode}
                   nodeId={node?.id}
                   onRefreshDoors={() => node?.id && refreshDoors(node.id)}
+                  existingNodeIds={existingNodeIds}
+                  isRedactedUnlocked={isRedactedUnlocked}
                 />
               )}
               <div className="connections-section">

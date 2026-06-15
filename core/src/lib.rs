@@ -4,6 +4,7 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chat::ChatMessage;
+use rusqlite::OptionalExtension;
 use rusqlite::{params, Connection, Row};
 use serde::Serialize;
 use tauri::Manager;
@@ -411,6 +412,7 @@ pub async fn execute_memory_extraction_pipeline(
     endpoint: String,
     model: String,
     db_path: PathBuf,
+    correction_signal: Option<memory_agent::CorrectionSignal>,
 ) -> Result<Changeset, String> {
     // 1. Load and filter chat history synchronously within scoped block to drop connection before await
     let chat_history = {
@@ -421,7 +423,7 @@ pub async fn execute_memory_extraction_pipeline(
                 "SELECT id, role, content, node_refs, created_at
                  FROM session_messages
                  WHERE session_id = 'default-session'
-                 ORDER BY created_at ASC, id ASC;",
+                 ORDER BY created_at ASC, rowid ASC;",
             )
             .map_err(|err| format!("Failed preparing session_messages query: {err}"))?;
 
@@ -592,17 +594,23 @@ pub async fn execute_memory_extraction_pipeline(
     // 7. Reuse a single connection for changeset build, persist, and retrieval
     let mut conn = open_connection(&db_path)?;
 
-    let changeset_id = {
+    let changeset_id: String = if let Some(ref signal) = correction_signal {
+        let (id, _amended) = memory_agent::amendment::amend_or_create_changeset(
+            &mut conn,
+            &candidates,
+            "default-session",
+            &model,
+            signal,
+        )?;
+        id
+    } else {
         let tx = conn
             .transaction()
             .map_err(|err| format!("Failed to start transaction: {err}"))?;
-
         let pending_changeset =
             memory_agent::changeset::build_changeset(&tx, &candidates, "default-session")?;
-
         let persisted_id =
             memory_agent::persistence::persist_changeset(&tx, &pending_changeset, Some(&model))?;
-
         tx.commit()
             .map_err(|err| format!("Failed to commit transaction: {err}"))?;
         persisted_id
@@ -626,7 +634,23 @@ async fn memory_extract(
 
     // 2. Execute shared pipeline
     let db_path = state.db_path.clone();
-    execute_memory_extraction_pipeline(provider, endpoint, model, db_path).await
+    execute_memory_extraction_pipeline(provider, endpoint, model, db_path, None).await
+}
+
+fn fetch_latest_user_message(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT content FROM session_messages
+         WHERE session_id = ?1 AND role = 'user'
+         ORDER BY created_at DESC, rowid DESC
+         LIMIT 1;",
+        [session_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|err| format!("Failed querying latest user message: {err}"))
 }
 
 #[tauri::command]
@@ -657,7 +681,22 @@ async fn memory_extract_if_ready(
     memory_agent::trigger::align_last_extract_count(&conn, current_message_count)?;
 
     // 5. Check trigger
-    let ready = memory_agent::trigger::should_extract(&conn, session_id)?;
+    let mut ready = memory_agent::trigger::should_extract(&conn, session_id)?;
+    let mut correction_signal = None;
+
+    // Always scan the latest user message for a correction signal to ensure
+    // corrections are correctly routed to the amendment engine instead of creating duplicates,
+    // even if the standard extraction cooldown has already elapsed.
+    let latest_user_msg = fetch_latest_user_message(&conn, session_id)?;
+    if let Some(msg_content) = latest_user_msg {
+        let signal =
+            memory_agent::trigger::should_extract_correction(&conn, session_id, &msg_content)?;
+        if signal.is_some() {
+            ready = true;
+            correction_signal = signal;
+        }
+    }
+
     if !ready {
         return Ok(None);
     }
@@ -667,8 +706,14 @@ async fn memory_extract_if_ready(
 
     // 5. Execute shared pipeline (capture result without early-returning on error,
     //    so we always mark the extraction as attempted and respect cooldown windows)
-    let pipeline_result =
-        execute_memory_extraction_pipeline(provider, endpoint, model, db_path.clone()).await;
+    let pipeline_result = execute_memory_extraction_pipeline(
+        provider,
+        endpoint,
+        model,
+        db_path.clone(),
+        correction_signal,
+    )
+    .await;
 
     // 6. Mark extraction complete/attempted *before* propagating any error,
     //    so that should_extract respects the 6-message and 2-minute cooldown
@@ -3522,6 +3567,7 @@ pub fn run() {
             save_markdown_file,
             memory_extract,
             memory_extract_if_ready,
+            memory_extract_force,
             changeset_count_pending,
             changeset_list_pending,
             changeset_list_items,
@@ -3534,4 +3580,71 @@ pub fn run() {
             eprintln!("error while running tauri application: {err}");
             std::process::exit(1);
         });
+}
+
+#[tauri::command]
+async fn memory_extract_force(
+    provider: String,
+    endpoint: String,
+    model: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Changeset, String> {
+    check_rate_limit("memory_agent")?;
+    let db_path = state.db_path.clone();
+    let conn = open_connection(&db_path)?;
+
+    // Verify minimum message threshold (at least 3 messages)
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM session_messages WHERE session_id = 'default-session';",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|err| format!("Failed querying message count: {err}"))?;
+    if count < 3 {
+        return Err("Need at least 3 messages to extract memory.".to_string());
+    }
+
+    // Since memory_extract_force is a manual bypass/trigger, check if there's a correction
+    // signal in the latest user message to see if we should run it as a correction.
+    let latest_user_msg = fetch_latest_user_message(&conn, "default-session")?;
+    let correction_signal = if let Some(msg_content) = latest_user_msg {
+        memory_agent::trigger::should_extract_correction(&conn, "default-session", &msg_content)?
+    } else {
+        None
+    };
+
+    drop(conn);
+
+    // Execute pipeline with the detected correction signal
+    let result = execute_memory_extraction_pipeline(
+        provider,
+        endpoint,
+        model,
+        db_path.clone(),
+        correction_signal,
+    )
+    .await;
+
+    // Mark extraction complete
+    let conn = open_connection(&db_path)?;
+    memory_agent::trigger::mark_extraction_complete(&conn, count)?;
+
+    result
+}
+
+pub async fn test_helper_memory_extract_force(
+    provider: String,
+    endpoint: String,
+    model: String,
+    db_path: std::path::PathBuf,
+) -> Result<ipc_types::Changeset, String> {
+    use tauri::Manager;
+    let app = tauri::test::mock_app();
+    app.manage(AppState {
+        db_path,
+        redacted_session_key: std::sync::Mutex::new(None),
+    });
+    let state = app.state::<AppState>();
+    memory_extract_force(provider, endpoint, model, state).await
 }

@@ -17,6 +17,7 @@ interface ProposedData {
   tags?: string[];
   vaultId?: string;
   vault_id?: string;
+  _amended?: { at?: string; similarity?: number; reason?: string };
 }
 
 interface ExistingData {
@@ -243,6 +244,14 @@ export default function DiffRow({ item, onCommitItem }: DiffRowProps) {
           <span className={`changeset-item-badge ${badgeClass}`}>
             {typeUpper === "REPOINT_DOOR" || typeUpper === "ORPHAN_ALERT" ? "ORPHAN" : typeUpper}
           </span>
+          {proposed._amended && (
+            <span
+              className="diff-amended-badge"
+              title={`Amended at ${proposed._amended.at ?? "unknown"}`}
+            >
+              (amended)
+            </span>
+          )}
           <span className="changeset-item-status">Status: {item.status}</span>
         </div>
         <ItemActions

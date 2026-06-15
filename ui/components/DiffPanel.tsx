@@ -18,6 +18,15 @@ function parseSQLiteDate(dateStr: string | null | undefined): Date {
   return new Date(normalized);
 }
 
+function parseJSON(str: string | null | undefined) {
+  if (!str) return {};
+  try {
+    return JSON.parse(str);
+  } catch {
+    return {};
+  }
+}
+
 interface DiffPanelProps {
   onClose: () => void;
   activeChangesetId: string | null;
@@ -259,15 +268,6 @@ export default function DiffPanel({
     onSelectChangeset(null);
     setSearchQuery("");
     setSelectedCategory(null);
-  };
-
-  // Safe JSON Parsing for proposed/existing data
-  const parseJSON = (str: string) => {
-    try {
-      return JSON.parse(str);
-    } catch {
-      return {};
-    }
   };
 
   // Helper to extract item summary title
@@ -589,18 +589,20 @@ export default function DiffPanel({
                     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                       {/* Detailed diff cards will render here in Commit 4. 
                           For Commit 3, we render a highly polished list summary with type badges. */}
-                      {filteredItems.map((item) => (
-                        <div
-                          key={item.id}
-                          className={item.status !== "pending" ? "diff-row-resolved" : ""}
-                          style={{
-                            transition: "opacity 0.5s ease-out, transform 0.5s ease-out",
-                            opacity: item.status !== "pending" ? 0.4 : 1,
-                          }}
-                        >
-                          <DiffRow item={item} onCommitItem={handleCommitItem} />
-                        </div>
-                      ))}
+                      {filteredItems.map((item) => {
+                        return (
+                          <div
+                            key={item.id}
+                            className={item.status !== "pending" ? "diff-row-resolved" : ""}
+                            style={{
+                              transition: "opacity 0.5s ease-out, transform 0.5s ease-out",
+                              opacity: item.status !== "pending" ? 0.4 : 1,
+                            }}
+                          >
+                            <DiffRow item={item} onCommitItem={handleCommitItem} />
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </>

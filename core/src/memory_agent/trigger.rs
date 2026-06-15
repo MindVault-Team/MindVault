@@ -1,3 +1,4 @@
+use crate::memory_agent::correction;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -110,6 +111,57 @@ pub fn mark_extraction_complete(
     )?;
 
     Ok(())
+}
+
+/// Evaluates whether a correction signal should bypass the standard debounce gate.
+/// Returns true if a correction was detected AND there are at least 3 messages
+/// in the session (minimum viable context for extraction).
+pub fn should_extract_correction(
+    conn: &Connection,
+    session_id: &str,
+    message: &str,
+) -> Result<Option<correction::CorrectionSignal>, String> {
+    // 1. Check message count threshold (3) first to avoid redundant queries in early sessions
+    let message_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM session_messages WHERE session_id = ?1;",
+            [session_id],
+            |row| row.get(0),
+        )
+        .map_err(|err| format!("Failed querying session message count: {err}"))?;
+
+    if message_count < 3 {
+        return Ok(None);
+    }
+
+    // 2. Query latest user message prior to this one in session
+    let previous_message: Option<String> = conn
+        .query_row(
+            "SELECT content FROM session_messages WHERE session_id = ?1 AND role = 'user' ORDER BY created_at DESC, rowid DESC LIMIT 1 OFFSET 1;",
+            [session_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|err| format!("Failed querying latest message: {err}"))?;
+
+    // 3. Query all pending changeset_items with status 'pending' for this session and extract their proposed_data column values
+    let pending_data: Vec<String> = conn
+        .prepare(
+            "SELECT ci.proposed_data \
+             FROM changeset_items ci \
+             JOIN changesets c ON ci.changeset_id = c.id \
+             WHERE ci.status = 'pending' AND c.session_id = ?1;",
+        )
+        .map_err(|err| format!("Failed preparing pending changeset query: {err}"))?
+        .query_map([session_id], |row| row.get(0))
+        .map_err(|err| format!("Failed querying pending changeset items: {err}"))?
+        .collect::<Result<Vec<String>, _>>()
+        .map_err(|err| format!("Failed reading pending changeset row: {err}"))?;
+
+    let signal =
+        correction::detect_correction_signal(message, previous_message.as_deref(), &pending_data);
+
+    Ok(signal)
 }
 
 #[cfg(test)]

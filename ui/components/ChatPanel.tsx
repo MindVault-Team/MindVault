@@ -13,6 +13,7 @@ import {
   createMarkdownComponents,
   preprocessMathDelimiters,
   preprocessWikiLinks,
+  ExistingNodesContext,
 } from "../utils/markdownUtils";
 import type { ContextAssemblerScope } from "../constants/contextBudget";
 import type { Vault } from "../ipc";
@@ -23,10 +24,10 @@ import {
   chatEditAndTruncate,
   type ChatMessage,
 } from "../services/chat";
-import { chatWithScope } from "../services/nodes";
+import { chatWithScope, getAllNodes } from "../services/nodes";
 import { getSetting } from "../services/settings";
 import { listVaults } from "../services/vaults";
-import { extractMemoryIfReady } from "../services/memoryAgent";
+import { extractMemoryIfReady, extractMemoryForce } from "../services/memoryAgent";
 import {
   getLlmModel,
   getLlmProvider,
@@ -56,6 +57,8 @@ type ChatMessageBubbleProps = {
   onStartEdit: (messageId: string, content: string) => void;
   chartsEnabled: boolean;
   onSelectNode?: (nodeId: string) => void;
+  existingNodeIds: Set<string> | null;
+  isRedactedUnlocked: boolean;
 };
 
 const ChatMessageBubble = React.memo(function ChatMessageBubble({
@@ -73,6 +76,8 @@ const ChatMessageBubble = React.memo(function ChatMessageBubble({
   onStartEdit,
   chartsEnabled,
   onSelectNode,
+  existingNodeIds,
+  isRedactedUnlocked,
 }: ChatMessageBubbleProps) {
   const bubbleContentRef = useRef<HTMLDivElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
@@ -88,8 +93,8 @@ const ChatMessageBubble = React.memo(function ChatMessageBubble({
   }, [message.content, message.role, isEditing]);
 
   const markdownComponents = React.useMemo(() => {
-    return createMarkdownComponents(chartsEnabled, onSelectNode);
-  }, [chartsEnabled, onSelectNode]);
+    return createMarkdownComponents(chartsEnabled, onSelectNode, isRedactedUnlocked);
+  }, [chartsEnabled, onSelectNode, isRedactedUnlocked]);
 
   const preprocessedMessage = React.useMemo(() => {
     const wLinks = preprocessWikiLinks(message.content);
@@ -135,13 +140,15 @@ const ChatMessageBubble = React.memo(function ChatMessageBubble({
                   message.role === "user" && isOverflowing && isCollapsed ? "collapsed" : ""
                 }`}
               >
-                <ReactMarkdown
-                  remarkPlugins={remarkPluginsStable}
-                  rehypePlugins={rehypePluginsStable}
-                  components={markdownComponents}
-                >
-                  {preprocessedMessage}
-                </ReactMarkdown>
+                <ExistingNodesContext.Provider value={existingNodeIds}>
+                  <ReactMarkdown
+                    remarkPlugins={remarkPluginsStable}
+                    rehypePlugins={rehypePluginsStable}
+                    components={markdownComponents}
+                  >
+                    {preprocessedMessage}
+                  </ReactMarkdown>
+                </ExistingNodesContext.Provider>
               </div>
               {message.role === "user" && isOverflowing && (
                 <button
@@ -299,6 +306,24 @@ const ChatMessageBubble = React.memo(function ChatMessageBubble({
   );
 });
 
+async function resolveLlmConfig(): Promise<{
+  provider: string;
+  endpoint: string;
+  model: string;
+}> {
+  const provider = getLlmProvider();
+  let endpoint = "";
+  if (provider === "lmstudio") {
+    endpoint = getLmStudioEndpoint();
+  } else if (provider === "ollama") {
+    endpoint = getOllamaEndpoint();
+  } else if (["openai", "anthropic", "google", "xai"].includes(provider)) {
+    endpoint = await getApiKey(provider);
+  }
+  const model = getLlmModel();
+  return { provider, endpoint, model };
+}
+
 type ChatPanelProps = {
   selectedNodeIds: string[];
   scope: ContextAssemblerScope;
@@ -309,6 +334,8 @@ type ChatPanelProps = {
   onSelectNode?: (nodeId: string) => void;
   onRefreshPendingCount?: () => void;
   isRedactedUnlocked: boolean;
+  nodeRefreshKey?: number;
+  visible?: boolean;
 };
 
 function ChatPanel({
@@ -321,6 +348,8 @@ function ChatPanel({
   onSelectNode,
   onRefreshPendingCount,
   isRedactedUnlocked,
+  nodeRefreshKey,
+  visible = true,
 }: ChatPanelProps) {
   const MAX_RENDERED_MESSAGES = 60;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -331,6 +360,24 @@ function ChatPanel({
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState("");
+  const [existingNodeIds, setExistingNodeIds] = useState<Set<string> | null>(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    let active = true;
+    getAllNodes(isRedactedUnlocked)
+      .then((nodes) => {
+        if (active) {
+          setExistingNodeIds(new Set(nodes.map((n) => n.id)));
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to fetch nodes in ChatPanel:", err);
+      });
+    return () => {
+      active = false;
+    };
+  }, [nodeRefreshKey, isRedactedUnlocked, visible]);
 
   const [userName, setUserName] = useState("Lisa");
   const [vaults, setVaults] = useState<Vault[]>([]);
@@ -343,6 +390,8 @@ function ChatPanel({
   const chartsEnabled = useUIStore((state) => state.chat.chartsEnabled);
   const setChatChartsEnabled = useUIStore((state) => state.setChatChartsEnabled);
   const [showChartsConfirmModal, setShowChartsConfirmModal] = useState(false);
+
+  const [isExtracting, setIsExtracting] = useState(false);
 
   useEffect(() => {
     onModalToggle?.(showChartsConfirmModal);
@@ -358,6 +407,21 @@ function ChatPanel({
       setShowChartsConfirmModal(true);
     }
   }, [chartsEnabled, setChatChartsEnabled]);
+
+  const handleForceExtract = useCallback(async () => {
+    if (isExtracting || isSending) return;
+    setIsExtracting(true);
+    try {
+      const { provider, endpoint, model } = await resolveLlmConfig();
+      await extractMemoryForce(provider, endpoint, model);
+      onRefreshPendingCount?.();
+    } catch (err) {
+      console.error("Manual extraction failed:", err);
+      setStatus(String(err));
+    } finally {
+      setIsExtracting(false);
+    }
+  }, [isExtracting, isSending, onRefreshPendingCount]);
 
   const threadEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -536,16 +600,7 @@ function ChatPanel({
       setIsSending(true);
 
       try {
-        const provider = getLlmProvider();
-        let endpoint = "";
-        if (provider === "lmstudio") {
-          endpoint = getLmStudioEndpoint();
-        } else if (provider === "ollama") {
-          endpoint = getOllamaEndpoint();
-        } else if (["openai", "anthropic", "google", "xai"].includes(provider)) {
-          endpoint = await getApiKey(provider);
-        }
-        const model = getLlmModel();
+        const { provider, endpoint, model } = await resolveLlmConfig();
 
         let executionPrompt = promptText;
         if (agentMode === "Ingest/Memory") {
@@ -989,6 +1044,19 @@ function ChatPanel({
                 </div>
               )}
             </div>
+
+            {/* Pill 4: Extract Memory */}
+            <div className="zen-pill-container">
+              <button
+                type="button"
+                className={`zen-pill extract-pill ${isExtracting ? "active" : ""}`}
+                onClick={() => void handleForceExtract()}
+                disabled={isExtracting || isSending}
+              >
+                <span className="zen-pill-icon">{isExtracting ? "⏳" : "🧠"}</span>
+                <span className="zen-pill-label">{isExtracting ? "Extracting..." : "Extract"}</span>
+              </button>
+            </div>
           </div>
           {status && <p className="chat-status">{status}</p>}
         </div>
@@ -1066,6 +1134,8 @@ function ChatPanel({
               onStartEdit={handleStartEdit}
               chartsEnabled={chartsEnabled}
               onSelectNode={onSelectNode}
+              existingNodeIds={existingNodeIds}
+              isRedactedUnlocked={isRedactedUnlocked}
             />
           ))}
           {isSending && (
@@ -1247,7 +1317,18 @@ function ChatPanel({
               </div>
             )}
           </div>
-
+          {/* Pill 4: Extract Memory */}
+          <div className="zen-pill-container">
+            <button
+              type="button"
+              className={`zen-pill extract-pill ${isExtracting ? "active" : ""}`}
+              onClick={() => void handleForceExtract()}
+              disabled={isExtracting || isSending}
+            >
+              <span className="zen-pill-icon">{isExtracting ? "⏳" : "🧠"}</span>
+              <span className="zen-pill-label">{isExtracting ? "Extracting..." : "Extract"}</span>
+            </button>
+          </div>
           {/* Overflow dropdown trigger */}
           <div
             className="zen-pill-container overflow-container"

@@ -8,6 +8,7 @@ import {
   getCaretCoordinates,
   isRawLatex,
   preprocessMathDelimiters,
+  ExistingNodesContext,
 } from "../utils/markdownUtils";
 import NodeLinkAutocomplete from "./NodeLinkAutocomplete";
 import type { Node } from "../types/generated/Node";
@@ -25,6 +26,8 @@ type NodeEditorDetailProps = {
   onSelectNode?: (nodeId: string) => void;
   nodeId?: string;
   onRefreshDoors?: () => void;
+  existingNodeIds?: Set<string>;
+  isRedactedUnlocked?: boolean;
 };
 
 export default function NodeEditorDetail({
@@ -37,6 +40,8 @@ export default function NodeEditorDetail({
   onSelectNode,
   nodeId,
   onRefreshDoors,
+  existingNodeIds,
+  isRedactedUnlocked,
 }: NodeEditorDetailProps) {
   const storeChartsEnabled = useUIStore((state) => state.nodeEditor.chartsEnabled);
   const setNodeEditorChartsEnabled = useUIStore((state) => state.setNodeEditorChartsEnabled);
@@ -163,8 +168,8 @@ export default function NodeEditorDetail({
   }, [debouncedPreviewValue]);
 
   const markdownComponents = React.useMemo(() => {
-    return createMarkdownComponents(chartsEnabled, onSelectNode);
-  }, [chartsEnabled, onSelectNode]);
+    return createMarkdownComponents(chartsEnabled, onSelectNode, isRedactedUnlocked);
+  }, [chartsEnabled, onSelectNode, isRedactedUnlocked]);
 
   return (
     <div className="node-editor-detail-container">
@@ -269,13 +274,15 @@ export default function NodeEditorDetail({
                 </pre>
               )
             ) : (
-              <ReactMarkdown
-                remarkPlugins={remarkPluginsStable}
-                rehypePlugins={rehypePluginsStable}
-                components={markdownComponents}
-              >
-                {preprocessedMarkdown}
-              </ReactMarkdown>
+              <ExistingNodesContext.Provider value={existingNodeIds}>
+                <ReactMarkdown
+                  remarkPlugins={remarkPluginsStable}
+                  rehypePlugins={rehypePluginsStable}
+                  components={markdownComponents}
+                >
+                  {preprocessedMarkdown}
+                </ReactMarkdown>
+              </ExistingNodesContext.Provider>
             )}
           </div>
         )}

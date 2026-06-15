@@ -334,3 +334,17 @@ export function debugSeedChangeset() {
     .then((ok) => ({ ok }) as IpcResult<boolean>)
     .catch((error) => ({ err: String(error) }) as IpcResult<boolean>);
 }
+
+export function memoryExtractForce(
+  provider: string,
+  endpoint: string,
+  model: string
+): Promise<IpcResult<Changeset>> {
+  return invoke<Changeset>("memory_extract_force", {
+    provider,
+    endpoint,
+    model,
+  })
+    .then((ok) => ({ ok }) as IpcResult<Changeset>)
+    .catch((error) => ({ err: String(error) }) as IpcResult<Changeset>);
+}

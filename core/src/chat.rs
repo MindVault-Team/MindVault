@@ -34,7 +34,7 @@ pub fn get_chat_history(db: &Connection) -> Result<Vec<ChatMessage>, crate::AppE
             "SELECT id, role, content, created_at
              FROM session_messages
              WHERE session_id = ?1
-             ORDER BY created_at ASC, id ASC;",
+             ORDER BY created_at ASC, rowid ASC;",
         )
         .map_err(|err| {
             eprintln!("Database error preparing chat history query: {err}");

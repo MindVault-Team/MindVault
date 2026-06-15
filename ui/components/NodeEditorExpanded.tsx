@@ -8,6 +8,7 @@ import {
   getCaretCoordinates,
   isRawLatex,
   preprocessMathDelimiters,
+  ExistingNodesContext,
 } from "../utils/markdownUtils";
 import LatexBlock from "./LatexBlock";
 import {
@@ -783,8 +784,12 @@ export default function NodeEditorExpanded({
   }, [debouncedPreviewDetail]);
 
   const markdownComponents = React.useMemo(() => {
-    return createMarkdownComponents(chartsEnabled, onSelectNode);
-  }, [chartsEnabled, onSelectNode]);
+    return createMarkdownComponents(chartsEnabled, onSelectNode, isRedactedUnlocked);
+  }, [chartsEnabled, onSelectNode, isRedactedUnlocked]);
+
+  const existingNodeIds = React.useMemo(() => {
+    return new Set(Object.keys(allNodesMap));
+  }, [allNodesMap]);
 
   function getNodeDisplayLabel(item: Node): string {
     const containerId = item.subVaultId ?? item.vaultId;
@@ -1279,13 +1284,15 @@ export default function NodeEditorExpanded({
                   <h1 className="preview-node-title">{editTitle || "Untitled Node"}</h1>
                   {editSummary && <p className="preview-node-summary">{editSummary}</p>}
                   <hr className="preview-divider" />
-                  <ReactMarkdown
-                    remarkPlugins={remarkPluginsStable}
-                    rehypePlugins={rehypePluginsStable}
-                    components={markdownComponents}
-                  >
-                    {preprocessedMarkdown}
-                  </ReactMarkdown>
+                  <ExistingNodesContext.Provider value={existingNodeIds}>
+                    <ReactMarkdown
+                      remarkPlugins={remarkPluginsStable}
+                      rehypePlugins={rehypePluginsStable}
+                      components={markdownComponents}
+                    >
+                      {preprocessedMarkdown}
+                    </ReactMarkdown>
+                  </ExistingNodesContext.Provider>
                 </>
               )}
             </div>

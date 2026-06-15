@@ -18,10 +18,12 @@ import { unwrapIpcResult } from "./ipcResult";
 
 let cachedNodes: Node[] | null = null;
 let cachedUnlockState: boolean | null = null;
+let pendingNodesPromise: Promise<Node[]> | null = null;
 
 export function clearNodesCache(): void {
   cachedNodes = null;
   cachedUnlockState = null;
+  pendingNodesPromise = null;
 }
 
 export async function createNode(input: NodeCreateInput): Promise<Node> {
@@ -34,20 +36,47 @@ export async function getNode(nodeId: string): Promise<Node | null> {
 }
 
 export async function getNodes(isRedactedUnlocked?: boolean): Promise<Node[]> {
-  if (isRedactedUnlocked === undefined) {
-    clearNodesCache();
-    return unwrapIpcResult(nodeList());
-  }
-  if (cachedUnlockState !== isRedactedUnlocked) {
+  const requestedState = isRedactedUnlocked !== undefined ? isRedactedUnlocked : null;
+  if (cachedUnlockState !== requestedState) {
     cachedNodes = null;
-    cachedUnlockState = isRedactedUnlocked;
+    pendingNodesPromise = null;
+    cachedUnlockState = requestedState;
   }
+
+  if (isRedactedUnlocked === undefined) {
+    if (pendingNodesPromise) {
+      return pendingNodesPromise;
+    }
+    clearNodesCache();
+    const promise = unwrapIpcResult(nodeList()).finally(() => {
+      if (pendingNodesPromise === promise) {
+        pendingNodesPromise = null;
+      }
+    });
+    pendingNodesPromise = promise;
+    return promise;
+  }
+
   if (cachedNodes) {
     return cachedNodes;
   }
-  const nodes = await unwrapIpcResult(nodeList());
-  cachedNodes = nodes;
-  return nodes;
+  if (pendingNodesPromise) {
+    return pendingNodesPromise;
+  }
+
+  const promise = unwrapIpcResult(nodeList()).then(
+    (nodes) => {
+      cachedNodes = nodes;
+      pendingNodesPromise = null;
+      return nodes;
+    },
+    (error) => {
+      pendingNodesPromise = null;
+      throw error;
+    }
+  );
+  pendingNodesPromise = promise;
+  return promise;
 }
 
 export async function getAllNodes(isRedactedUnlocked?: boolean): Promise<Node[]> {

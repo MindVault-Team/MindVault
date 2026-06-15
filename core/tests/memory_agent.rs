@@ -444,6 +444,7 @@ fn test_privacy_filtering_excludes_redacted_and_locked() -> Result<(), Box<dyn E
             "http://localhost:11434".to_string(),
             "granite".to_string(),
             db_path.clone(),
+            None,
         )
         .await;
 
@@ -561,6 +562,7 @@ fn test_full_pipeline_graceful_recovery_under_malformed_llm_response() -> Result
             format!("http://127.0.0.1:{}", port),
             "granite".to_string(),
             db_path.clone(),
+            None,
         )
         .await;
 
@@ -639,6 +641,7 @@ fn test_full_pipeline_successful_extraction_and_persistence() -> Result<(), Box<
             format!("http://127.0.0.1:{}", port),
             "granite".to_string(),
             db_path.clone(),
+            None,
         )
         .await;
 
