@@ -33,7 +33,11 @@ fn contains_phrase_with_boundaries(message: &str, phrase: &str) -> bool {
         if before_ok && after_ok {
             return true;
         }
-        start = abs_pos + 1;
+        let char_len = message[abs_pos..]
+            .chars()
+            .next()
+            .map_or(1, |c| c.len_utf8());
+        start = abs_pos + char_len;
     }
     false
 }
@@ -139,4 +143,15 @@ pub fn has_correction_signal(
     pending_proposed_data: &[String],
 ) -> bool {
     detect_correction_signal(message, previous_message, pending_proposed_data).is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_contains_phrase_with_boundaries_unicode_start() {
+        // This test would trigger a panic with the original `start = abs_pos + 1` logic
+        assert!(!contains_phrase_with_boundaries("a⚠️test", "⚠️test"));
+    }
 }
