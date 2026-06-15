@@ -683,15 +683,17 @@ async fn memory_extract_if_ready(
     // 5. Check trigger
     let mut ready = memory_agent::trigger::should_extract(&conn, session_id)?;
     let mut correction_signal = None;
-    if !ready {
-        let latest_user_msg = fetch_latest_user_message(&conn, session_id)?;
-        if let Some(msg_content) = latest_user_msg {
-            let signal =
-                memory_agent::trigger::should_extract_correction(&conn, session_id, &msg_content)?;
-            if signal.is_some() {
-                ready = true;
-                correction_signal = signal;
-            }
+
+    // Always scan the latest user message for a correction signal to ensure
+    // corrections are correctly routed to the amendment engine instead of creating duplicates,
+    // even if the standard extraction cooldown has already elapsed.
+    let latest_user_msg = fetch_latest_user_message(&conn, session_id)?;
+    if let Some(msg_content) = latest_user_msg {
+        let signal =
+            memory_agent::trigger::should_extract_correction(&conn, session_id, &msg_content)?;
+        if signal.is_some() {
+            ready = true;
+            correction_signal = signal;
         }
     }
 
