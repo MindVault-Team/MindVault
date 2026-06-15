@@ -183,7 +183,7 @@ function WikiLinkBadge({
   const isSearchQuery = nodeId.startsWith("search:");
 
   const nodeExists = existingNodeIds ? existingNodeIds.has(nodeId) : fetchedExists;
-  const isBroken = nodeExists === false;
+  const isBroken = !isSearchQuery && nodeExists === false;
   const isLoading = nodeExists === null && !isSearchQuery;
 
   // Validate node existence on mount (skip for search queries or if context provides it)
