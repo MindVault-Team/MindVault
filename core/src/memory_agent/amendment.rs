@@ -137,12 +137,12 @@ fn stamp_amended(
 }
 
 /// Finds the most-recent pending changeset for a (session_id, model) pair.
-/// Returns `Some((changeset_id, content))` or `None`.
+/// Returns `Some(changeset_id)` or `None`.
 fn find_pending_changeset(
     conn: &Connection,
     session_id: &str,
     model: &str,
-) -> Result<Option<(String, String)>, String> {
+) -> Result<Option<String>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id FROM changesets
@@ -157,7 +157,7 @@ fn find_pending_changeset(
 
     if let Some(row) = rows.next().map_err(|e| format!("Database error: {}", e))? {
         let id: String = row.get(0).map_err(|e| format!("Database error: {}", e))?;
-        Ok(Some((id, String::new())))
+        Ok(Some(id))
     } else {
         Ok(None)
     }
@@ -237,7 +237,7 @@ pub fn amend_or_create_changeset(
     }
 
     // ── 2b. Pending changeset exists — amend in-place where possible ─────────
-    let (existing_id, _content) =
+    let existing_id =
         existing_changeset.ok_or_else(|| "Pending changeset unexpectedly missing".to_string())?;
 
     let tx = conn
