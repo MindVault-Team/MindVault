@@ -124,7 +124,7 @@ pub fn should_extract_correction(
     // 1. Query latest user message prior to this one in session
     let previous_message: Option<String> = conn
         .query_row(
-            "SELECT content FROM session_messages WHERE session_id = ?1 ORDER BY created_at DESC LIMIT 1;",
+            "SELECT content FROM session_messages WHERE session_id = ?1 ORDER BY created_at DESC LIMIT 1 OFFSET 1;",
             [session_id],
             |row| row.get(0),
         )
