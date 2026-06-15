@@ -412,6 +412,91 @@ fn test_amend_appends_genuinely_new_candidate() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+fn test_amend_prevents_multiple_candidates_matching_same_item() -> Result<(), Box<dyn Error>> {
+    let mut conn = setup_test_db()?;
+    let session_id = "test-session";
+    let model = "granite4.1:3b";
+
+    // Create pending changeset with item A
+    let pending_items = vec![PendingChangesetItem {
+        item_type: ChangesetItemType::Add,
+        target_node_id: None,
+        proposed_data:
+            r#"{"title":"Blue Theme","summary":"This is a beautiful blue theme summary"}"#
+                .to_string(),
+        existing_data: None,
+        similarity: None,
+        merge_with_id: None,
+    }];
+    let pending_changeset = PendingChangeset {
+        session_id: session_id.to_string(),
+        model_used: Some(model.to_string()),
+        items: pending_items,
+    };
+
+    let tx = conn.transaction()?;
+    let cs_id = persist_changeset(&tx, &pending_changeset, Some(model))?;
+    tx.commit()?;
+
+    // Two candidates, both matching "Blue Theme" (> 50% Jaccard similarity)
+    let candidates = vec![
+        CandidateNode {
+            title: "Blue Theme".to_string(),
+            summary: "This is a beautiful blue theme summary updated".to_string(),
+            detail: None,
+            node_type: Some("concept".to_string()),
+            target_vault_key: Some("personal".to_string()),
+            tags: None,
+            confidence: 0.95,
+            action: CandidateAction::Add,
+        },
+        CandidateNode {
+            title: "Blue Theme".to_string(),
+            summary: "This is a beautiful blue theme summary version two".to_string(),
+            detail: None,
+            node_type: Some("concept".to_string()),
+            target_vault_key: Some("personal".to_string()),
+            tags: None,
+            confidence: 0.95,
+            action: CandidateAction::Add,
+        },
+    ];
+
+    let correction_signal = CorrectionSignal::ExplicitPhrase {
+        phrase: "actually".to_string(),
+    };
+
+    let (returned_cs_id, amended) = amend_or_create_changeset(
+        &mut conn,
+        &candidates,
+        session_id,
+        model,
+        &correction_signal,
+    )?;
+
+    // The returned changeset should be the same, and it was amended.
+    assert_eq!(returned_cs_id, cs_id);
+    assert!(amended);
+
+    // Instead of both overwriting the same row (leading to 1 item), the second one should
+    // be added as a new row. So we should end up with exactly 2 items.
+    let items = list_changeset_items(&conn, &cs_id)?;
+    assert_eq!(items.len(), 2);
+
+    // One of them is the amended one, and the other is a fresh insertion.
+    let mut count_amended = 0;
+    for item in &items {
+        let data: serde_json::Value = serde_json::from_str(&item.proposed_data)?;
+        if data.get("_amended").is_some() {
+            count_amended += 1;
+        }
+    }
+    assert_eq!(count_amended, 1);
+
+    Ok(())
+}
+
+#[test]
 fn test_force_extract_minimum_message_threshold() -> Result<(), Box<dyn Error>> {
     tauri::async_runtime::block_on(async {
         let temp_dir = std::env::temp_dir();

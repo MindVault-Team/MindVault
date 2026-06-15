@@ -228,6 +228,8 @@ pub fn amend_or_create_changeset(
     // Load existing items once; all comparisons run against this snapshot.
     let pending_items = load_pending_items(&tx, &existing_id)?;
 
+    let mut amended_item_ids = std::collections::HashSet::new();
+
     for candidate in candidates {
         let resolved_vault_id = candidate
             .target_vault_key
@@ -254,6 +256,7 @@ pub fn amend_or_create_changeset(
         // Find the highest-similarity existing item above the 50 % threshold.
         let best_match = pending_items
             .iter()
+            .filter(|(item_id, _)| !amended_item_ids.contains(item_id))
             .map(|(item_id, existing_data)| {
                 let existing_fp = candidate_fingerprint(existing_data);
                 let sim = memory_agent::jaccard_similarity(&candidate_fp, &existing_fp);
@@ -263,6 +266,9 @@ pub fn amend_or_create_changeset(
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         if let Some((matched_id, similarity)) = best_match {
+            // Track this item ID as amended so it is excluded from future matches.
+            amended_item_ids.insert(matched_id.clone());
+
             // ── UPDATE path: same candidate, corrected values ─────────────────
             //
             // Stamp `_amended` metadata so the Diff Panel can render the
