@@ -113,6 +113,52 @@ pub fn mark_extraction_complete(
     Ok(())
 }
 
+/// Evaluates whether a correction signal should bypass the standard debounce gate.
+/// Returns true if a correction was detected AND there are at least 3 messages
+/// in the session (minimum viable context for extraction).
+pub fn should_extract_correction(
+    conn: &Connection,
+    session_id: &str,
+    message: &str,
+) -> Result<bool, String> {
+    // 1. Query latest user message prior to this one in session
+    let previous_message: Option<String> = conn
+        .query_row(
+            "SELECT content FROM session_messages WHERE session_id = ?1 ORDER BY created_at DESC LIMIT 1;",
+            [session_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|err| format!("Failed querying latest message: {err}"))?;
+
+    // 2. Query all pending changeset_items with status 'pending' and extract their proposed_data column values
+    let pending_data: Vec<String> = conn
+        .prepare("SELECT proposed_data FROM changeset_items WHERE status = 'pending';")
+        .map_err(|err| format!("Failed preparing pending changeset query: {err}"))?
+        .query_map([], |row| row.get(0))
+        .map_err(|err| format!("Failed querying pending changeset items: {err}"))?
+        .collect::<Result<Vec<String>, _>>()
+        .map_err(|err| format!("Failed reading pending changeset row: {err}"))?;
+
+    let signal: bool =
+        correction::has_correction_signal(message, previous_message.as_deref(), &pending_data);
+
+    // 3. Check for signal detection and message count threshold (3)
+    let message_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM session_messages WHERE session_id = ?1;",
+            [session_id],
+            |row| row.get(0),
+        )
+        .map_err(|err| format!("Failed querying session message count: {err}"))?;
+
+    if signal && message_count >= 3 {
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,51 +299,5 @@ mod tests {
         );
 
         Ok(())
-    }
-}
-
-/// Evaluates whether a correction signal should bypass the standard debounce gate.
-/// Returns true if a correction was detected AND there are at least 3 messages
-/// in the session (minimum viable context for extraction).
-pub fn should_extract_correction(
-    conn: &Connection,
-    session_id: &str,
-    message: &str,
-) -> Result<bool, String> {
-    // 1. Query latest user message prior to this one in session
-    let previous_message: Option<String> = conn
-        .query_row(
-            "SELECT content FROM session_messages WHERE session_id = ?1 ORDER BY created_at DESC LIMIT 1;",
-            [session_id],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(|err| format!("Failed querying latest message: {err}"))?;
-
-    // 2. Query all pending changeset_items with status 'pending' and extract their proposed_data column values
-    let pending_data: Vec<String> = conn
-        .prepare("SELECT proposed_data FROM changeset_items WHERE status = 'pending';")
-        .map_err(|err| format!("Failed preparing pending changeset query: {err}"))?
-        .query_map([], |row| row.get(0))
-        .map_err(|err| format!("Failed querying pending changeset items: {err}"))?
-        .collect::<Result<Vec<String>, _>>()
-        .map_err(|err| format!("Failed reading pending changeset row: {err}"))?;
-
-    let signal: bool =
-        correction::has_correction_signal(message, previous_message.as_deref(), &pending_data);
-
-    // 3. Check for signal detection and message count threshold (3)
-    let message_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM session_messages WHERE session_id = ?1;",
-            [session_id],
-            |row| row.get(0),
-        )
-        .map_err(|err| format!("Failed querying session message count: {err}"))?;
-
-    if signal && message_count >= 3 {
-        Ok(true)
-    } else {
-        Ok(false)
     }
 }

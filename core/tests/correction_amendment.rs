@@ -105,22 +105,20 @@ fn test_detect_changeset_contradiction() -> Result<(), Box<dyn Error>> {
     let pending_data = vec![r#"{"title": "Blue Theme"}"#.to_string()];
 
     // 1. Direct contradiction check without using explicit phrases (which would trigger early return)
-    let signal =
-        detect_correction_signal(r#"{"title": "Blue Theme"} is wrong"#, None, &pending_data);
+    let signal = detect_correction_signal("Blue Theme is wrong", None, &pending_data);
     assert_eq!(
         signal,
         Some(CorrectionSignal::ChangesetContradiction {
-            contradicted_field: r#"{"title": "Blue Theme"}"#.to_string()
+            contradicted_field: "Blue Theme".to_string()
         })
     );
 
     // 2. Direct contradiction check with "not"
-    let signal_not =
-        detect_correction_signal(r#"not {"title": "Blue Theme"}"#, None, &pending_data);
+    let signal_not = detect_correction_signal("not Blue Theme", None, &pending_data);
     assert_eq!(
         signal_not,
         Some(CorrectionSignal::ChangesetContradiction {
-            contradicted_field: r#"{"title": "Blue Theme"}"#.to_string()
+            contradicted_field: "Blue Theme".to_string()
         })
     );
 
@@ -236,7 +234,9 @@ fn test_amend_existing_changeset_in_place() -> Result<(), Box<dyn Error>> {
     // Verify _amended metadata is present in proposed_data
     let parsed_data: serde_json::Value = serde_json::from_str(&items_after[0].proposed_data)?;
     assert!(parsed_data.get("_amended").is_some());
-    let amended_meta = parsed_data.get("_amended").unwrap();
+    let amended_meta = parsed_data
+        .get("_amended")
+        .ok_or("expected _amended metadata")?;
     assert!(amended_meta.get("similarity").is_some());
     assert!(amended_meta.get("reason").is_some());
 
@@ -381,7 +381,7 @@ fn test_force_extract_minimum_message_threshold() -> Result<(), Box<dyn Error>> 
 
         // Assert it returns an error
         assert!(result.is_err());
-        let err_msg = result.err().unwrap();
+        let err_msg = result.err().ok_or("expected error result")?;
         assert!(
             err_msg.contains("at least 3 messages"),
             "Expected 'at least 3 messages' error, got: {}",
