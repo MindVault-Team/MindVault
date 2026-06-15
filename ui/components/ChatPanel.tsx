@@ -24,7 +24,7 @@ import {
   chatEditAndTruncate,
   type ChatMessage,
 } from "../services/chat";
-import { chatWithScope, getAllNodes } from "../services/nodes";
+import { chatWithScope, getAllNodes, clearNodesCache } from "../services/nodes";
 import { getSetting } from "../services/settings";
 import { listVaults } from "../services/vaults";
 import { extractMemoryIfReady, extractMemoryForce } from "../services/memoryAgent";
@@ -362,6 +362,7 @@ function ChatPanel({
 
   useEffect(() => {
     let active = true;
+    clearNodesCache();
     getAllNodes(isRedactedUnlocked)
       .then((nodes) => {
         if (active) {
