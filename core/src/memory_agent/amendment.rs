@@ -153,7 +153,7 @@ fn load_pending_items(
     let mut stmt = conn
         .prepare(
             "SELECT id, proposed_data FROM changeset_items \
-             WHERE changeset_id = ?1",
+             WHERE changeset_id = ?1 AND status = 'pending'",
         )
         .map_err(|e| format!("Database error: {}", e))?;
 
