@@ -103,7 +103,7 @@ fn candidate_fingerprint(proposed_data: &serde_json::Value) -> String {
 }
 
 /// Injects `_amended` metadata into an existing proposed_data JSON value.
-/// The key is prefixed with `_` so itrust-analyzer-diagnostics-view:/diagnostic%20message%20%5B4%5D?4#file:///Users/fiorittoev/Desktop/projects/MindVault/core/src/memory_agent/ammendment.rs sorts before all plain field names under
+/// The key is prefixed with `_` so it sorts before all plain field names under
 /// BTreeMap (serde_json default) and is also first when `preserve_order` /
 /// IndexMap is enabled (explicit prepend).
 ///
