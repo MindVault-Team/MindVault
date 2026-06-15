@@ -279,14 +279,21 @@ pub fn amend_or_create_changeset(
             let proposed_json = serde_json::to_string(&amended_data)
                 .map_err(|e| format!("JSON serialization error: {}", e))?;
 
+            let item_type = match candidate.action {
+                crate::memory_agent::CandidateAction::Add => "add",
+                crate::memory_agent::CandidateAction::Update => "update",
+                crate::memory_agent::CandidateAction::Delete => "delete",
+            };
+
             tx.execute(
                 "UPDATE changeset_items
                  SET proposed_data = ?1,
                      similarity    = ?2,
+                     item_type     = ?3,
                      reviewed_at   = NULL,
                      sort_order    = sort_order
-                 WHERE id = ?3",
-                params![proposed_json, similarity, matched_id],
+                 WHERE id = ?4",
+                params![proposed_json, similarity, item_type, matched_id],
             )
             .map_err(|e| format!("Failed to update changeset_item {}: {}", matched_id, e))?;
         } else {
