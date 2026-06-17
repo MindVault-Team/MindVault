@@ -24,6 +24,7 @@ type OnboardingShellProps = {
 };
 
 const STEPS = ["Basics", "LLM setup", "Review"] as const;
+const REVIEW_STEP_INDEX = STEPS.indexOf("Review");
 
 type Provider = "ollama" | "lmstudio";
 
@@ -419,7 +420,7 @@ function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingS
       await commitOnboardingAndFinish();
       return;
     }
-    if (currentStep === STEPS.length - 2 && !hasExtracted) {
+    if (currentStep === REVIEW_STEP_INDEX - 1 && !hasExtracted) {
       const ok = await runExtractionOnce();
       if (!ok) {
         return;
@@ -577,7 +578,7 @@ function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingS
               </label>
             </div>
           ) : null}
-          {currentStep === 2 ? (
+          {currentStep === REVIEW_STEP_INDEX ? (
             <div className="onboarding-review-list" aria-label="Staged onboarding proposals">
               {stagedProposals.length === 0 ? (
                 <p className="onboarding-hint">
@@ -680,14 +681,14 @@ function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingS
           <button type="button" onClick={goBack} disabled={currentStep === 0 || shellBusy}>
             Back
           </button>
-          {currentStep === 1 && extractionFailed ? (
+          {currentStep === REVIEW_STEP_INDEX - 1 && extractionFailed ? (
             <button
               type="button"
               className="secondary"
               onClick={() => {
                 setHasExtracted(true);
                 setExtractionFailed(false);
-                setCurrentStep(2);
+                setCurrentStep(REVIEW_STEP_INDEX);
               }}
               disabled={shellBusy}
             >
