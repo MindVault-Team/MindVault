@@ -52,7 +52,7 @@ function assertNodeVersion() {
 
 if (help) {
   // Keep this intentionally short and copy-paste friendly.
-  console.log(`MindVault preflight checks
+  console.log(`Amber preflight checks
 
 Usage:
   npm run preflight

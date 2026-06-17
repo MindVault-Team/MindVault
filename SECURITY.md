@@ -1,11 +1,11 @@
 # Security Policy
 
-MindVault takes the security and privacy of user data incredibly seriously. 
+Amber takes the security and privacy of user data incredibly seriously. 
 As a local-first application designed to protect sensitive personal context, ensuring the integrity of our data layers, IPC bridge, and cryptographic locks is our top priority.
 
 ## Supported Versions
 
-MindVault is currently in active development. Security updates and patches are evaluated and applied exclusively to the latest version.
+Amber is currently in active development. Security updates and patches are evaluated and applied exclusively to the latest version.
 
 | Version | Supported          |
 | ------- | ------------------ |
@@ -16,7 +16,7 @@ MindVault is currently in active development. Security updates and patches are e
 
 **Please do not report security vulnerabilities through public GitHub issues.**
 
-If you believe you have found a security vulnerability in MindVault such as an IPC bridge exploit, a bypass of the Redacted/Locked privacy tiers, or a local path traversal please report it directly to the maintainer.
+If you believe you have found a security vulnerability in Amber such as an IPC bridge exploit, a bypass of the Redacted/Locked privacy tiers, or a local path traversal please report it directly to the maintainer.
 
 ### How to Report (Check first!)
 
@@ -35,7 +35,7 @@ We will publicly acknowledge your contribution in the release notes once the pat
 
 ## UI Privacy Enforcement
 
-To ensure visual privacy and data sandboxing, the MindVault user interface enforces strict visual boundaries around sensitive assets in both the spatial canvas and list-based navigation views.
+To ensure visual privacy and data sandboxing, the Amber user interface enforces strict visual boundaries around sensitive assets in both the spatial canvas and list-based navigation views.
 
 1. **Redacted Data Isolation**:
    - Nodes and vaults marked as `redacted` hide their titles, summaries, breadcrumbs, search previews, active-memory rows, and connection labels until the master password is verified.

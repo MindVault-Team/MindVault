@@ -1,8 +1,8 @@
-# MindVault — Architecture Guide
+# Amber — Architecture Guide
 
 > **Local-first AI memory system** | Tauri v2 · Rust · React 19 · TypeScript · AGPLv3
 
-This document is how MindVault is structured. Before opening a PR, please read the sections relevant to what you're changing. The rules here aren't arbitrary.
+This document is how Amber is structured. Before opening a PR, please read the sections relevant to what you're changing. The rules here aren't arbitrary.
 
 ---
 
@@ -24,7 +24,7 @@ This document is how MindVault is structured. Before opening a PR, please read t
 
 ## 1. Project Philosophy
 
-MindVault is **privacy-by-architecture**, not privacy-by-policy. The user's Vault data never leaves their device unless they explicitly opt into cloud sync. This isn't a setting that can be toggled off — it's baked into how the system is built.
+Amber is **privacy-by-architecture**, not privacy-by-policy. The user's Vault data never leaves their device unless they explicitly opt into cloud sync. This isn't a setting that can be toggled off — it's baked into how the system is built.
 
 When in doubt about a design decision, ask: *"Does this give the user's data a path off their device that they didn't knowingly approve?"* If yes, it's the wrong approach.
 
@@ -139,7 +139,7 @@ API keys, OAuth tokens, and any other credentials must:
 ```rust
 // ✅ Correct — key is retrieved and used within the same Rust scope
 fn call_llm_api(prompt: &str, provider: &str) -> Result<String, AppError> {
-    let entry = Entry::new("mindvault", provider)?;
+    let entry = Entry::new("amber", provider)?;
     let key = secrecy::Secret::new(entry.get_password()?);
     http_client::post(endpoint, key.expose_secret(), prompt)
     // key drops here, memory is zeroed automatically
