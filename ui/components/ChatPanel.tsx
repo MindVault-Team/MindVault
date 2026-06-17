@@ -101,6 +101,19 @@ const ChatMessageBubble = React.memo(function ChatMessageBubble({
     return preprocessMathDelimiters(wLinks);
   }, [message.content]);
 
+  const markdownBody = React.useMemo(
+    () => (
+      <ReactMarkdown
+        remarkPlugins={remarkPluginsStable}
+        rehypePlugins={rehypePluginsStable}
+        components={markdownComponents}
+      >
+        {preprocessedMessage}
+      </ReactMarkdown>
+    ),
+    [markdownComponents, preprocessedMessage]
+  );
+
   return (
     <article className={`chat-message chat-message-${message.role}`}>
       {message.role === "assistant" && <div className="chat-avatar">MV</div>}
@@ -141,13 +154,7 @@ const ChatMessageBubble = React.memo(function ChatMessageBubble({
                 }`}
               >
                 <ExistingNodesContext.Provider value={existingNodeIds}>
-                  <ReactMarkdown
-                    remarkPlugins={remarkPluginsStable}
-                    rehypePlugins={rehypePluginsStable}
-                    components={markdownComponents}
-                  >
-                    {preprocessedMessage}
-                  </ReactMarkdown>
+                  {markdownBody}
                 </ExistingNodesContext.Provider>
               </div>
               {message.role === "user" && isOverflowing && (

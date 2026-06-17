@@ -486,11 +486,11 @@ function App() {
         ) : null}
         {onboardingResolved && needsOnboarding ? null : (
           <>
-            <div className={styles.appTopBar}>
-              <span className={styles.appTopBarTitle}>Memory Agent</span>
+            <div className={styles.memoryBadgeContainer}>
+              <span className={styles.memoryBadgeTitle}>Memory Agent</span>
               <button
                 type="button"
-                className={styles.pendingBadge}
+                className={styles.memoryBadgePendingBadge}
                 title="Memory Proposals"
                 onClick={() => setIsDiffPanelOpen(true)}
               >

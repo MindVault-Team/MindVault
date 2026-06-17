@@ -171,6 +171,19 @@ export default function NodeEditorDetail({
     return createMarkdownComponents(chartsEnabled, onSelectNode, isRedactedUnlocked);
   }, [chartsEnabled, onSelectNode, isRedactedUnlocked]);
 
+  const markdownBody = React.useMemo(
+    () => (
+      <ReactMarkdown
+        remarkPlugins={remarkPluginsStable}
+        rehypePlugins={rehypePluginsStable}
+        components={markdownComponents}
+      >
+        {preprocessedMarkdown}
+      </ReactMarkdown>
+    ),
+    [markdownComponents, preprocessedMarkdown]
+  );
+
   return (
     <div className="node-editor-detail-container">
       <div className="node-editor-detail-header">
@@ -275,13 +288,7 @@ export default function NodeEditorDetail({
               )
             ) : (
               <ExistingNodesContext.Provider value={existingNodeIds}>
-                <ReactMarkdown
-                  remarkPlugins={remarkPluginsStable}
-                  rehypePlugins={rehypePluginsStable}
-                  components={markdownComponents}
-                >
-                  {preprocessedMarkdown}
-                </ReactMarkdown>
+                {markdownBody}
               </ExistingNodesContext.Provider>
             )}
           </div>
