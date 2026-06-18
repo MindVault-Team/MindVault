@@ -1347,6 +1347,7 @@ pub fn run() {
             chat_edit_and_truncate,
             chat_set_off_the_record,
             chat_is_off_the_record,
+            chat_convert_temporary_to_memory,
             vault_create,
             vault_list,
             vault_delete,
@@ -3321,11 +3322,14 @@ async fn llm_chat(
     charts_enabled: bool,
     is_redacted_unlocked: bool,
     state: tauri::State<'_, AppState>,
+    session_id: &str
 ) -> Result<String, String> {
     let db_path = state.db_path.clone();
     let persona_instruction = "You are MindVault's personalized, context-aware memory assistant.";
 
-    let mut system_prompt = {
+    let mut system_prompt = if session_id == "temporary-session" {
+        "[Off the Record Mode: Context assembly has been bypassed. No personal memories or notes are accessible in this session.]".to_string()
+    } else {
         let conn = open_connection(&db_path)?;
         llm::assembler::build_context(
             &conn,
@@ -3335,8 +3339,8 @@ async fn llm_chat(
                 max_tokens: DEFAULT_ASSEMBLER_MAX_TOKENS,
                 is_unlocked: is_redacted_unlocked,
             },
-        )
-    }?;
+        )?
+    };
 
     let chart_instruction = "\n\n\
     [VISUALIZATION SYSTEM CONTRACT]\n\
@@ -3511,7 +3515,13 @@ async fn memory_extract_if_ready(
     endpoint: String,
     model: String,
     state: tauri::State<'_, AppState>,
+    session_id: &str
 ) -> Result<Option<Changeset>, String> {
+
+    if session_id == "temporary-session" {
+        return Ok(None);
+    }
+
     // 1. Enforce governor rate-limiting first
     check_rate_limit("memory_agent")?;
 
@@ -3519,8 +3529,6 @@ async fn memory_extract_if_ready(
     let db_path = state.db_path.clone();
     let conn = open_connection(&db_path)?;
 
-    // 3. Query total message count
-    let session_id = "default-session";
     let current_message_count: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM session_messages WHERE session_id = ?1;",
@@ -3589,6 +3597,30 @@ async fn changeset_commit(
     })
     .await
     .map_err(|err| format!("Failed to spawn blocking changeset commit task: {err}"))?
+}
+
+#[tauri::command]
+async fn chat_convert_temporary_to_memory(
+    provider: String,
+    endpoint: String,
+    model: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Changeset, String> {
+    let db_path = state.db_path.clone();
+    let conn = open_connection(&db_path)?;
+
+    chat::convert_temporary_to_memory(&conn)?;
+
+    conn.execute(
+        "UPDATE settings SET value = 'false', updated_at = datetime('now')
+         WHERE key = 'session_off_the_record';",
+        [],
+    )
+    .map_err(|err| format!("Failed disabling OTR setting: {err}"))?;
+
+    drop(conn);
+
+    execute_memory_extraction_pipeline(provider, endpoint, model, db_path, None).await
 }
 
 /// MARK: Tests

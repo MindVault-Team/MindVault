@@ -89,16 +89,16 @@ export function onboardingSetComplete(isComplete: boolean) {
   return settingsSet("onboarding_complete", JSON.stringify(isComplete));
 }
 
-export function chatGetHistory() {
-  return invokeTyped<ChatMessage[]>("chat_get_history");
+export function chatGetHistory(sessionId: string) {
+  return invokeTyped<ChatMessage[]>("chat_get_history", { sessionId });
 }
 
 export function chatAppendMessage(id: string, role: string, content: string) {
   return invokeTyped<void>("chat_append_message", { id, role, content });
 }
 
-export function chatClearHistory() {
-  return invokeTyped<void>("chat_clear_history");
+export function chatClearHistory(sessionId: string) {
+  return invokeTyped<void>("chat_clear_history", { sessionId });
 }
 
 export function chatEditAndTruncate(editId: string, newContent: string, deleteIds: string[]) {
@@ -245,7 +245,8 @@ export function chatWithLlm(
   model: string,
   userPrompt: string,
   chartsEnabled: boolean,
-  isRedactedUnlocked: boolean
+  isRedactedUnlocked: boolean,
+  sessionId: string
 ) {
   return invoke<string>("llm_chat", {
     nodeIds,
@@ -256,6 +257,7 @@ export function chatWithLlm(
     userPrompt,
     chartsEnabled,
     isRedactedUnlocked,
+    sessionId,
   })
     .then((ok) => ({ ok }) as IpcResult<string>)
     .catch((error) => ({ err: String(error) }) as IpcResult<string>);
@@ -293,8 +295,8 @@ export function memoryExtract(provider: string, endpoint: string, model: string)
     .catch((error) => ({ err: String(error) }) as IpcResult<Changeset>);
 }
 
-export function memoryExtractIfReady(provider: string, endpoint: string, model: string) {
-  return invoke<Changeset | null>("memory_extract_if_ready", { provider, endpoint, model })
+export function memoryExtractIfReady(provider: string, endpoint: string, model: string,sessionId:string) {
+  return invoke<Changeset | null>("memory_extract_if_ready", { provider, endpoint, model, sessionId })
     .then((ok) => ({ ok }) as IpcResult<Changeset | null>)
     .catch((error) => ({ err: String(error) }) as IpcResult<Changeset | null>);
 }
@@ -341,6 +343,28 @@ export function memoryExtractForce(
   model: string
 ): Promise<IpcResult<Changeset>> {
   return invoke<Changeset>("memory_extract_force", {
+    provider,
+    endpoint,
+    model,
+  })
+    .then((ok) => ({ ok }) as IpcResult<Changeset>)
+    .catch((error) => ({ err: String(error) }) as IpcResult<Changeset>);
+}
+
+export function chatSetOffTheRecord(enabled: boolean) {
+  return invokeTyped<boolean>("chat_set_off_the_record", { enabled });
+}
+
+export function chatIsOffTheRecord() {
+  return invokeTyped<boolean>("chat_is_off_the_record");
+}
+
+export function chatConvertTemporaryToMemory(
+  provider: string,
+  endpoint: string,
+  model: string
+): Promise<IpcResult<Changeset>> {
+  return invoke<Changeset>("chat_convert_temporary_to_memory", {
     provider,
     endpoint,
     model,

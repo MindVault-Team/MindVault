@@ -16,7 +16,7 @@ import {
   ExistingNodesContext,
 } from "../utils/markdownUtils";
 import type { ContextAssemblerScope } from "../constants/contextBudget";
-import type { Vault } from "../ipc";
+import { chatIsOffTheRecord, type Vault } from "../ipc";
 import {
   chatAppendMessage,
   clearChatHistory,
@@ -38,6 +38,8 @@ import {
   getApiKey,
 } from "../utils/settings";
 import { useUIStore } from "../utils/store";
+import { invoke } from "@tauri-apps/api/core";
+import { chatConvertTemporaryToMemory } from "../ipc";
 
 // Memoized individual message bubble — prevents re-rendering existing messages
 // when unrelated parent state (e.g. input text) changes. Each bubble only
@@ -82,6 +84,7 @@ const ChatMessageBubble = React.memo(function ChatMessageBubble({
   const bubbleContentRef = useRef<HTMLDivElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
+  
 
   useEffect(() => {
     if (bubbleContentRef.current && message.role === "user" && !isEditing) {
@@ -349,8 +352,30 @@ function ChatPanel({
   onRefreshPendingCount,
   isRedactedUnlocked,
   nodeRefreshKey,
-  visible = true,
+  visible = true
 }: ChatPanelProps) {
+  const [isOffTheRecord, setIsOffTheRecord] = useState(false);
+
+  const sessionId = isOffTheRecord ? "temporary-session" : "default-session";
+
+  const handleToggleOtr = useCallback(async () => {
+    const next = !isOffTheRecord;
+    const nextSessionId = next ? "temporary-session" : "default-session";
+    setIsOffTheRecord(next);
+    try {
+      await invoke("chat_set_off_the_record", { enabled: next });
+      // Clear the session we're switching away from, then load the new one
+      await clearChatHistory(sessionId);
+      const history = await getChatHistory(nextSessionId);
+      setMessages(history);
+      setInput("");
+      setStatus("");
+    } catch (err) {
+      console.error("Failed to toggle off-the-record:", err);
+      setIsOffTheRecord(!next); // rollback
+    }
+  }, [isOffTheRecord, sessionId]);
+
   const MAX_RENDERED_MESSAGES = 60;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -362,9 +387,13 @@ function ChatPanel({
   const [editingContent, setEditingContent] = useState("");
   const [existingNodeIds, setExistingNodeIds] = useState<Set<string> | null>(null);
 
+
   useEffect(() => {
     if (!visible) return;
     let active = true;
+    chatIsOffTheRecord().then((res) => {
+      if ("ok" in res) setIsOffTheRecord(res.ok);
+    });
     getAllNodes(isRedactedUnlocked)
       .then((nodes) => {
         if (active) {
@@ -422,6 +451,32 @@ function ChatPanel({
       setIsExtracting(false);
     }
   }, [isExtracting, isSending, onRefreshPendingCount]);
+
+  const [isConverting, setIsConverting] = useState(false);
+
+const handleConvertToMemory = useCallback(async () => {
+  if (isConverting || isSending) return;
+  setIsConverting(true);
+  try {
+    const { provider, endpoint, model } = await resolveLlmConfig();
+    const result = await chatConvertTemporaryToMemory(provider, endpoint, model);
+    if ("err" in result) {
+      setStatus(`Conversion failed: ${result.err}`);
+      return;
+    }
+    // Backend has merged messages and disabled OTR — sync local state
+    setIsOffTheRecord(false);
+    const history = await getChatHistory("default-session");
+    setMessages(history);
+    setStatus("");
+    onRefreshPendingCount?.();
+  } catch (err) {
+    console.error("Convert to memory failed:", err);
+    setStatus(String(err));
+  } finally {
+    setIsConverting(false);
+  }
+}, [isConverting, isSending, onRefreshPendingCount]);
 
   const threadEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -554,26 +609,20 @@ function ChatPanel({
   }, [activeDropdown]);
 
   useEffect(() => {
-    let active = true;
-    void (async () => {
-      try {
-        const history = await getChatHistory();
-        if (!active) {
-          return;
-        }
-        setMessages(history);
-        setStatus("");
-      } catch (error) {
-        if (!active) {
-          return;
-        }
-        setStatus(String(error));
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
+  let active = true;
+  void (async () => {
+    try {
+      const history = await getChatHistory(sessionId);
+      if (!active) return;
+      setMessages(history);
+      setStatus("");
+    } catch (error) {
+      if (!active) return;
+      setStatus(String(error));
+    }
+  })();
+  return () => { active = false; };
+}, [sessionId]);
 
   const canSend = useMemo(
     () => input.trim().length > 0 && !isSending && !isClearing,
@@ -617,7 +666,8 @@ function ChatPanel({
           model,
           executionPrompt,
           chartsEnabled,
-          isRedactedUnlocked
+          isRedactedUnlocked,
+          sessionId
         );
 
         const aiMsgId = crypto.randomUUID();
@@ -632,7 +682,7 @@ function ChatPanel({
         await chatAppendMessage(aiMsgId, "assistant", aiResponse);
 
         // Fire-and-forget background extraction check (non-blocking for the user)
-        extractMemoryIfReady(provider, endpoint, model)
+        extractMemoryIfReady(provider, endpoint, model, sessionId)
           .then((changeset) => {
             if (changeset && onRefreshPendingCount) {
               onRefreshPendingCount();
@@ -647,7 +697,7 @@ function ChatPanel({
         setIsSending(false);
       }
     },
-    [selectedNodeIds, scope, chartsEnabled, isRedactedUnlocked, agentMode, onRefreshPendingCount]
+    [selectedNodeIds, scope, chartsEnabled, isRedactedUnlocked, agentMode, onRefreshPendingCount,sessionId]
   );
 
   useEffect(() => {
@@ -696,7 +746,7 @@ function ChatPanel({
     setIsClearing(true);
     setStatus("");
     try {
-      await clearChatHistory();
+      await clearChatHistory(sessionId);
       setMessages([]);
       setStatus("Chat cleared.");
     } catch (error) {
@@ -711,7 +761,7 @@ function ChatPanel({
     setIsClearing(true);
     setStatus("");
     try {
-      await clearChatHistory();
+      await clearChatHistory(sessionId);
       setMessages([]);
       setInput("");
     } catch (error) {
@@ -1057,6 +1107,21 @@ function ChatPanel({
                 <span className="zen-pill-label">{isExtracting ? "Extracting..." : "Extract"}</span>
               </button>
             </div>
+
+            {/* Pill 5: Toggle Off the Record */}
+            <div className="zen-pill-container">
+                <button
+                className={`otr-toggle-btn ${isOffTheRecord ? "active" : ""}`}
+                onClick={handleToggleOtr}
+                title={isOffTheRecord ? "Disable Off the Record (enable memory)" : "Enable Off the Record (private brainstorm)"}
+              >
+                {isOffTheRecord ? "🕶️ Off the Record" : "🧠 Mind Sync Active"}
+              </button>
+            </div>
+
+            
+
+
           </div>
           {status && <p className="chat-status">{status}</p>}
         </div>
@@ -1329,6 +1394,22 @@ function ChatPanel({
               <span className="zen-pill-label">{isExtracting ? "Extracting..." : "Extract"}</span>
             </button>
           </div>
+          {/* Pill 5: Off the Record Banner */}
+          {isOffTheRecord && (
+            <div className="otr-convert-banner">
+              <span className="otr-banner-label">🕶️ Off the Record</span>
+              <button
+                type="button"
+                className="convert-memory-btn"
+                onClick={() => void handleConvertToMemory()}
+                disabled={isConverting || isSending}
+                title="Retroactively save this brainstorm session to your long-term memory vault"
+              >
+                {isConverting ? "Saving..." : "Save Brainstorm to Memory"}
+              </button>
+            </div>
+          )}
+
           {/* Overflow dropdown trigger */}
           <div
             className="zen-pill-container overflow-container"

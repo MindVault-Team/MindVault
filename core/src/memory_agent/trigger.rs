@@ -52,6 +52,11 @@ pub fn align_last_extract_count(
 /// Returns true if the message count since the last extraction is >= 6
 /// AND the time since the last extraction is >= 2 minutes (120 seconds).
 pub fn should_extract(conn: &Connection, session_id: &str) -> Result<bool, String> {
+    
+    if session_id == crate::chat::TEMPORARY_SESSION_ID {
+        return Ok(false);
+    }
+    
     // 1. Count current messages in the session
     let current_message_count: i64 = conn
         .query_row(

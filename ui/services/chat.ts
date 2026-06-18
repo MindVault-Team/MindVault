@@ -9,16 +9,16 @@ import { unwrapIpcResult } from "./ipcResult";
 
 export type { ChatMessage };
 
-export async function getChatHistory(): Promise<ChatMessage[]> {
-  return unwrapIpcResult(ipcChatGetHistory());
+export async function getChatHistory(sessionId: string): Promise<ChatMessage[]> {
+  return unwrapIpcResult(ipcChatGetHistory(sessionId));
 }
 
 export async function chatAppendMessage(id: string, role: string, content: string): Promise<void> {
   return unwrapIpcResult(ipcChatAppendMessage(id, role, content));
 }
 
-export async function clearChatHistory(): Promise<void> {
-  return unwrapIpcResult(ipcChatClearHistory());
+export async function clearChatHistory(sessionId: string): Promise<void> {
+  return unwrapIpcResult(ipcChatClearHistory(sessionId));
 }
 
 export async function chatEditAndTruncate(

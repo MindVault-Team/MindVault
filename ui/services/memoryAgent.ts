@@ -34,9 +34,10 @@ export async function extractMemory(
 export async function extractMemoryIfReady(
   provider: string,
   endpoint: string,
-  model: string
+  model: string,
+  sessionId: string
 ): Promise<Changeset | null> {
-  const result = await unwrapIpcResult(memoryExtractIfReady(provider, endpoint, model));
+  const result = await unwrapIpcResult(memoryExtractIfReady(provider, endpoint, model, sessionId));
   if (result) {
     clearNodesCache();
   }
@@ -118,7 +119,7 @@ if (typeof window !== "undefined" && import.meta.env.DEV) {
     const p = provider || "ollama";
     const e = endpoint || "http://localhost:11434";
     const m = model || "granite4.1:3b";
-    return extractMemoryIfReady(p, e, m).then(console.log).catch(console.error);
+    return extractMemoryIfReady(p, e, m, "default-session").then(console.log).catch(console.error);
   };
   w.testCountPendingChangesetItems = () => {
     return countPendingChangesetItems().then(console.log).catch(console.error);

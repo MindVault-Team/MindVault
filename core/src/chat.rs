@@ -185,3 +185,48 @@ pub fn purge_temporary_session(db: &Connection) -> Result<(), String> {
     .map_err(|err| format!("Failed to purge temporary session: {err}"))?;
     Ok(())
 }
+
+pub fn convert_temporary_to_memory(conn: &Connection) -> Result<(), String> {
+    conn.execute("SAVEPOINT convert_temporary_sp;", [])
+        .map_err(|err| format!("Failed starting conversion savepoint: {err}"))?;
+
+    let run_convert = || -> Result<(), String> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT role, content, created_at FROM session_messages
+                 WHERE session_id = 'temporary-session'
+                 ORDER BY created_at ASC, rowid ASC;",
+            )
+            .map_err(|err| format!("Failed preparing temporary session query: {err}"))?;
+
+        let rows: Vec<(String, String, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .map_err(|err| format!("Failed querying temporary messages: {err}"))?
+            .collect::<Result<_, _>>()
+            .map_err(|err| format!("Failed reading temporary message row: {err}"))?;
+
+        for (role, content, created_at) in rows {
+            conn.execute(
+                "INSERT INTO session_messages (id, session_id, role, content, created_at)
+                 VALUES (lower(hex(randomblob(8))), 'default-session', ?1, ?2, ?3);",
+                params![role, content, created_at],
+            )
+            .map_err(|err| format!("Failed inserting converted message: {err}"))?;
+        }
+
+        purge_temporary_session(conn)?;
+        Ok(())
+    };
+
+    match run_convert() {
+        Ok(()) => {
+            conn.execute("RELEASE convert_temporary_sp;", [])
+                .map_err(|err| format!("Failed releasing savepoint: {err}"))?;
+            Ok(())
+        }
+        Err(err) => {
+            let _ = conn.execute("ROLLBACK TO convert_temporary_sp;", []);
+            Err(err)
+        }
+    }
+}
