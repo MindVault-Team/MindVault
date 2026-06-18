@@ -1,4 +1,4 @@
-.appTopBar {
+.memoryBadgeContainer {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -13,7 +13,7 @@
   z-index: 1010;
 }
 
-.appTopBarTitle {
+.memoryBadgeTitle {
   font-family:
     "Inter",
     -apple-system,
@@ -26,7 +26,7 @@
   text-transform: uppercase;
 }
 
-.pendingBadge {
+.memoryBadgePendingBadge {
   display: inline-flex;
   align-items: center;
   background: rgba(188, 108, 37, 0.12);
@@ -49,7 +49,7 @@
     border-color 0.2s ease;
 }
 
-.pendingBadge:hover {
+.memoryBadgePendingBadge:hover {
   background: rgba(188, 108, 37, 0.2);
   border-color: rgba(188, 108, 37, 0.5);
 }

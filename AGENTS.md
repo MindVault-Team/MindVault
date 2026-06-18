@@ -1,4 +1,4 @@
-# MindVault Project Rules for Jules
+# Amber Project Rules for Jules
 
 ## Architecture Summary
 - This is a desktop application built with Tauri.

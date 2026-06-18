@@ -1,8 +1,8 @@
-# Contributing to MindVault
+# Contributing to Amber
 
-First off, thank you for considering contributing to MindVault! 
+First off, thank you for considering contributing to Amber! 
 
-MindVault is built on the philosophy that human memory and AI context should be entirely local, private, and owned by the user. By contributing, you are helping build a powerful, secure, and sovereign tool for thought.
+Amber is built on the philosophy that human memory and AI context should be entirely local, private, and owned by the user. By contributing, you are helping build a powerful, secure, and sovereign tool for thought.
 
 This document outlines the process for contributing, reporting bugs, and proposing new features.
 
@@ -17,7 +17,7 @@ This document outlines the process for contributing, reporting bugs, and proposi
 
 ## Project Architecture
 
-MindVault is a Tauri application built with a strict separation of concerns. Please read our `ARCHITECTURE.md` for deep dives, but the core split is:
+Amber is a Tauri application built with a strict separation of concerns. Please read our `ARCHITECTURE.md` for deep dives, but the core split is:
 
 * **`/core` (The Backend):** Written in Rust. Handles all SQLite database interactions (`rusqlite`), cryptographic security (Argon2id), file system operations, and future local LLM orchestration.
 * **`/ui` (The Frontend):** Written in React + TypeScript (Vite). Handles the visual interface, state management, and user interactions.
@@ -102,4 +102,4 @@ npm run preflight
 4. **Pass CI:** Ensure GitHub Actions pass (linting, type-checking, and Rust tests).
 5. **Review:** Open the PR and request a review. Be prepared to iterate based on feedback!
 
-By contributing to MindVault, you agree that your contributions will be licensed under its AGPLv3 License.
+By contributing to Amber, you agree that your contributions will be licensed under its AGPLv3 License.

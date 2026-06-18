@@ -166,6 +166,7 @@ export function preprocessMathDelimiters(text: string): string {
   processed = processed.replace(/\\\\\)/g, "$").replace(/\\\)/g, "$");
   return processed;
 }
+// undefined = no provider (badges validate per link); null = provider loading; Set = ready lookup
 export const ExistingNodesContext = React.createContext<Set<string> | null | undefined>(undefined);
 
 function WikiLinkBadge({
