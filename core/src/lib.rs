@@ -100,7 +100,7 @@ struct ValidatedProposal<'a> {
     tags: Option<&'a Vec<String>>,
 }
 
-/// MARK: Internal Helpers
+// MARK: Internal Helpers
 
 fn resolve_vault_privacy_in_memory(
     vault_id: &str,
@@ -3322,7 +3322,7 @@ async fn llm_chat(
     charts_enabled: bool,
     is_redacted_unlocked: bool,
     state: tauri::State<'_, AppState>,
-    session_id: &str
+    session_id: &str,
 ) -> Result<String, String> {
     let db_path = state.db_path.clone();
     let persona_instruction = "You are MindVault's personalized, context-aware memory assistant.";
@@ -3515,9 +3515,8 @@ async fn memory_extract_if_ready(
     endpoint: String,
     model: String,
     state: tauri::State<'_, AppState>,
-    session_id: &str
+    session_id: &str,
 ) -> Result<Option<Changeset>, String> {
-
     if session_id == "temporary-session" {
         return Ok(None);
     }

@@ -295,8 +295,18 @@ export function memoryExtract(provider: string, endpoint: string, model: string)
     .catch((error) => ({ err: String(error) }) as IpcResult<Changeset>);
 }
 
-export function memoryExtractIfReady(provider: string, endpoint: string, model: string,sessionId:string) {
-  return invoke<Changeset | null>("memory_extract_if_ready", { provider, endpoint, model, sessionId })
+export function memoryExtractIfReady(
+  provider: string,
+  endpoint: string,
+  model: string,
+  sessionId: string
+) {
+  return invoke<Changeset | null>("memory_extract_if_ready", {
+    provider,
+    endpoint,
+    model,
+    sessionId,
+  })
     .then((ok) => ({ ok }) as IpcResult<Changeset | null>)
     .catch((error) => ({ err: String(error) }) as IpcResult<Changeset | null>);
 }

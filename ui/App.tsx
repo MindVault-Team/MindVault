@@ -40,7 +40,6 @@ function App() {
   const [selectedChangesetId, setSelectedChangesetId] = useState<string | null>(null);
   const [leftPanelView, setLeftPanelView] = useState<"browse" | "history">("browse");
 
-  
   useEffect(() => {
     let active = true;
     const poll = () => {

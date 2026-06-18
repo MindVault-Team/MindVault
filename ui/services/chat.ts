@@ -3,6 +3,8 @@ import {
   chatClearHistory as ipcChatClearHistory,
   chatGetHistory as ipcChatGetHistory,
   chatEditAndTruncate as ipcChatEditAndTruncate,
+  chatSetOffTheRecord as ipcChatSetOffTheRecord,
+  chatIsOffTheRecord as ipcChatIsOffTheRecord,
   type ChatMessage,
 } from "../ipc";
 import { unwrapIpcResult } from "./ipcResult";
@@ -27,4 +29,12 @@ export async function chatEditAndTruncate(
   deleteIds: string[]
 ): Promise<void> {
   return unwrapIpcResult(ipcChatEditAndTruncate(editId, newContent, deleteIds));
+}
+
+export async function chatSetOffTheRecord(enabled: boolean): Promise<boolean> {
+  return unwrapIpcResult(ipcChatSetOffTheRecord(enabled));
+}
+
+export async function chatIsOffTheRecord(): Promise<boolean> {
+  return unwrapIpcResult(ipcChatIsOffTheRecord());
 }

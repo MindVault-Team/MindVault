@@ -48,3 +48,6 @@ pnpm-lock.yaml
 Concepts/
 cursorrules
 ARCHITECTURE_RULES.md
+
+# Dev & Debug profiles
+chrome-profile/

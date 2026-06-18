@@ -16,12 +16,14 @@ import {
   ExistingNodesContext,
 } from "../utils/markdownUtils";
 import type { ContextAssemblerScope } from "../constants/contextBudget";
-import { chatIsOffTheRecord, type Vault } from "../ipc";
+import type { Vault } from "../ipc";
 import {
   chatAppendMessage,
   clearChatHistory,
   getChatHistory,
   chatEditAndTruncate,
+  chatSetOffTheRecord,
+  chatIsOffTheRecord,
   type ChatMessage,
 } from "../services/chat";
 import { chatWithScope, getAllNodes } from "../services/nodes";
@@ -38,7 +40,6 @@ import {
   getApiKey,
 } from "../utils/settings";
 import { useUIStore } from "../utils/store";
-import { invoke } from "@tauri-apps/api/core";
 import { chatConvertTemporaryToMemory } from "../ipc";
 
 // Memoized individual message bubble — prevents re-rendering existing messages
@@ -84,7 +85,6 @@ const ChatMessageBubble = React.memo(function ChatMessageBubble({
   const bubbleContentRef = useRef<HTMLDivElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
-  
 
   useEffect(() => {
     if (bubbleContentRef.current && message.role === "user" && !isEditing) {
@@ -359,30 +359,9 @@ function ChatPanel({
   onRefreshPendingCount,
   isRedactedUnlocked,
   nodeRefreshKey,
-  visible = true
+  visible = true,
 }: ChatPanelProps) {
   const [isOffTheRecord, setIsOffTheRecord] = useState(false);
-
-  const sessionId = isOffTheRecord ? "temporary-session" : "default-session";
-
-  const handleToggleOtr = useCallback(async () => {
-    const next = !isOffTheRecord;
-    const nextSessionId = next ? "temporary-session" : "default-session";
-    setIsOffTheRecord(next);
-    try {
-      await invoke("chat_set_off_the_record", { enabled: next });
-      // Clear the session we're switching away from, then load the new one
-      await clearChatHistory(sessionId);
-      const history = await getChatHistory(nextSessionId);
-      setMessages(history);
-      setInput("");
-      setStatus("");
-    } catch (err) {
-      console.error("Failed to toggle off-the-record:", err);
-      setIsOffTheRecord(!next); // rollback
-    }
-  }, [isOffTheRecord, sessionId]);
-
   const MAX_RENDERED_MESSAGES = 60;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -394,13 +373,32 @@ function ChatPanel({
   const [editingContent, setEditingContent] = useState("");
   const [existingNodeIds, setExistingNodeIds] = useState<Set<string> | null>(null);
 
+  const sessionId = isOffTheRecord ? "temporary-session" : "default-session";
+
+  const handleToggleOtr = useCallback(async () => {
+    const next = !isOffTheRecord;
+    const nextSessionId = next ? "temporary-session" : "default-session";
+    setIsOffTheRecord(next);
+    try {
+      await chatSetOffTheRecord(next);
+      // Clear the session we're switching away from, then load the new one
+      await clearChatHistory(sessionId);
+      const history = await getChatHistory(nextSessionId);
+      setMessages(history);
+      setInput("");
+      setStatus("");
+    } catch (err) {
+      console.error("Failed to toggle off-the-record:", err);
+      setIsOffTheRecord(!next); // rollback
+    }
+  }, [isOffTheRecord, sessionId, setIsOffTheRecord, setMessages, setInput, setStatus]);
 
   useEffect(() => {
     if (!visible) return;
     let active = true;
-    chatIsOffTheRecord().then((res) => {
-      if ("ok" in res) setIsOffTheRecord(res.ok);
-    });
+    chatIsOffTheRecord()
+      .then((ok) => setIsOffTheRecord(ok))
+      .catch((err) => console.error("Failed to fetch off-the-record state:", err));
     getAllNodes(isRedactedUnlocked)
       .then((nodes) => {
         if (active) {
@@ -457,33 +455,41 @@ function ChatPanel({
     } finally {
       setIsExtracting(false);
     }
-  }, [isExtracting, isSending, onRefreshPendingCount]);
+  }, [isExtracting, isSending, onRefreshPendingCount, setIsExtracting, setStatus]);
 
   const [isConverting, setIsConverting] = useState(false);
 
-const handleConvertToMemory = useCallback(async () => {
-  if (isConverting || isSending) return;
-  setIsConverting(true);
-  try {
-    const { provider, endpoint, model } = await resolveLlmConfig();
-    const result = await chatConvertTemporaryToMemory(provider, endpoint, model);
-    if ("err" in result) {
-      setStatus(`Conversion failed: ${result.err}`);
-      return;
+  const handleConvertToMemory = useCallback(async () => {
+    if (isConverting || isSending) return;
+    setIsConverting(true);
+    try {
+      const { provider, endpoint, model } = await resolveLlmConfig();
+      const result = await chatConvertTemporaryToMemory(provider, endpoint, model);
+      if ("err" in result) {
+        setStatus(`Conversion failed: ${result.err}`);
+        return;
+      }
+      // Backend has merged messages and disabled OTR — sync local state
+      setIsOffTheRecord(false);
+      const history = await getChatHistory("default-session");
+      setMessages(history);
+      setStatus("");
+      onRefreshPendingCount?.();
+    } catch (err) {
+      console.error("Convert to memory failed:", err);
+      setStatus(String(err));
+    } finally {
+      setIsConverting(false);
     }
-    // Backend has merged messages and disabled OTR — sync local state
-    setIsOffTheRecord(false);
-    const history = await getChatHistory("default-session");
-    setMessages(history);
-    setStatus("");
-    onRefreshPendingCount?.();
-  } catch (err) {
-    console.error("Convert to memory failed:", err);
-    setStatus(String(err));
-  } finally {
-    setIsConverting(false);
-  }
-}, [isConverting, isSending, onRefreshPendingCount]);
+  }, [
+    isConverting,
+    isSending,
+    onRefreshPendingCount,
+    setIsConverting,
+    setIsOffTheRecord,
+    setMessages,
+    setStatus,
+  ]);
 
   const threadEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -616,20 +622,22 @@ const handleConvertToMemory = useCallback(async () => {
   }, [activeDropdown]);
 
   useEffect(() => {
-  let active = true;
-  void (async () => {
-    try {
-      const history = await getChatHistory(sessionId);
-      if (!active) return;
-      setMessages(history);
-      setStatus("");
-    } catch (error) {
-      if (!active) return;
-      setStatus(String(error));
-    }
-  })();
-  return () => { active = false; };
-}, [sessionId]);
+    let active = true;
+    void (async () => {
+      try {
+        const history = await getChatHistory(sessionId);
+        if (!active) return;
+        setMessages(history);
+        setStatus("");
+      } catch (error) {
+        if (!active) return;
+        setStatus(String(error));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [sessionId]);
 
   const canSend = useMemo(
     () => input.trim().length > 0 && !isSending && !isClearing,
@@ -704,7 +712,18 @@ const handleConvertToMemory = useCallback(async () => {
         setIsSending(false);
       }
     },
-    [selectedNodeIds, scope, chartsEnabled, isRedactedUnlocked, agentMode, onRefreshPendingCount,sessionId]
+    [
+      selectedNodeIds,
+      scope,
+      chartsEnabled,
+      isRedactedUnlocked,
+      agentMode,
+      onRefreshPendingCount,
+      sessionId,
+      setStatus,
+      setIsSending,
+      setMessages,
+    ]
   );
 
   useEffect(() => {
@@ -838,7 +857,7 @@ const handleConvertToMemory = useCallback(async () => {
       }
     },
 
-    []
+    [setStatus, setMessages, setEditingMessageId]
   );
 
   const handleRetryMessage = useCallback(
@@ -878,7 +897,7 @@ const handleConvertToMemory = useCallback(async () => {
       }
     },
 
-    []
+    [setStatus, setMessages]
   );
 
   function toggleDropdown(type: "vault" | "mode" | "model" | "overflow") {
@@ -1117,18 +1136,18 @@ const handleConvertToMemory = useCallback(async () => {
 
             {/* Pill 5: Toggle Off the Record */}
             <div className="zen-pill-container">
-                <button
+              <button
                 className={`otr-toggle-btn ${isOffTheRecord ? "active" : ""}`}
                 onClick={handleToggleOtr}
-                title={isOffTheRecord ? "Disable Off the Record (enable memory)" : "Enable Off the Record (private brainstorm)"}
+                title={
+                  isOffTheRecord
+                    ? "Disable Off the Record (enable memory)"
+                    : "Enable Off the Record (private brainstorm)"
+                }
               >
                 {isOffTheRecord ? "🕶️ Off the Record" : "🧠 Mind Sync Active"}
               </button>
             </div>
-
-            
-
-
           </div>
           {status && <p className="chat-status">{status}</p>}
         </div>

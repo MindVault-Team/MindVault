@@ -13,7 +13,7 @@ fn ensure_session(db: &Connection, session_id: &str) -> Result<(), crate::AppErr
     Ok(())
 }
 
-/// MARK: Public API
+// MARK: Public API
 
 pub const TEMPORARY_SESSION_ID: &str = "temporary-session";
 
