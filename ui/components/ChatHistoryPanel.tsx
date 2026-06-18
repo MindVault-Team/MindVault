@@ -62,6 +62,7 @@ export default function ChatHistoryPanel({
       if (emptySession) {
         await chatSetOffTheRecord(false);
         setActiveSessionId(emptySession.id);
+        window.dispatchEvent(new CustomEvent("mindvault:chat-external-updated"));
         return;
       }
 

@@ -3251,6 +3251,13 @@ fn chat_set_off_the_record(enabled: bool, state: tauri::State<'_, AppState>) -> 
         Ok(c) => c,
         Err(err) => return IpcResponse::Err { err },
     };
+
+    if !enabled {
+        if let Err(err) = chat::purge_temporary_session(&conn) {
+            eprintln!("Failed to purge temporary session when disabling OTR: {err}");
+        }
+    }
+
     // Store transient setting in the DB
     let res = conn.execute(
         "INSERT INTO settings (key, value, scope) VALUES ('session_off_the_record', ?1, 'global')

@@ -26,6 +26,9 @@ export function setLlmProvider(provider: string, skipEvent = false): void {
     ? normalized
     : DEFAULT_PROVIDER;
   window.localStorage.setItem(LLM_PROVIDER_KEY, next);
+  void settingsSet(LLM_PROVIDER_KEY, next).catch((err) => {
+    console.error("Failed to persist LLM provider in SQLite:", err);
+  });
   if (!skipEvent) {
     window.dispatchEvent(new CustomEvent("mindvault:llm-settings-changed"));
   }
@@ -41,7 +44,11 @@ export function getOllamaEndpoint(): string {
 
 export function setOllamaEndpoint(url: string): void {
   const normalized = url.trim();
-  window.localStorage.setItem(OLLAMA_ENDPOINT_KEY, normalized || DEFAULT_OLLAMA_ENDPOINT);
+  const val = normalized || DEFAULT_OLLAMA_ENDPOINT;
+  window.localStorage.setItem(OLLAMA_ENDPOINT_KEY, val);
+  void settingsSet(OLLAMA_ENDPOINT_KEY, val).catch((err) => {
+    console.error("Failed to persist Ollama endpoint in SQLite:", err);
+  });
 }
 
 export function getLmStudioEndpoint(): string {
@@ -54,7 +61,11 @@ export function getLmStudioEndpoint(): string {
 
 export function setLmStudioEndpoint(url: string): void {
   const normalized = url.trim();
-  window.localStorage.setItem(LMSTUDIO_ENDPOINT_KEY, normalized || DEFAULT_LMSTUDIO_ENDPOINT);
+  const val = normalized || DEFAULT_LMSTUDIO_ENDPOINT;
+  window.localStorage.setItem(LMSTUDIO_ENDPOINT_KEY, val);
+  void settingsSet(LMSTUDIO_ENDPOINT_KEY, val).catch((err) => {
+    console.error("Failed to persist LM Studio endpoint in SQLite:", err);
+  });
 }
 
 export function getLlmModel(provider?: string): string {
@@ -64,7 +75,12 @@ export function getLlmModel(provider?: string): string {
 }
 
 export function setLlmModel(provider: string, model: string): void {
-  window.localStorage.setItem(`mindvault.llm.${provider}.model`, model.trim());
+  const trimmed = model.trim();
+  const providerKey = `mindvault.llm.${provider}.model`;
+  window.localStorage.setItem(providerKey, trimmed);
+  void settingsSet(providerKey, trimmed).catch((err) => {
+    console.error(`Failed to persist LLM model for ${provider} in SQLite:`, err);
+  });
   window.dispatchEvent(new CustomEvent("mindvault:llm-settings-changed"));
 }
 
@@ -78,6 +94,9 @@ export function getLlmMode(): "local" | "cloud" | "hybrid" {
 
 export function setLlmMode(mode: "local" | "cloud" | "hybrid"): void {
   window.localStorage.setItem(LLM_MODE_KEY, mode);
+  void settingsSet(LLM_MODE_KEY, mode).catch((err) => {
+    console.error("Failed to persist LLM mode in SQLite:", err);
+  });
   // Synchronize provider to matching group
   const currentProvider = getLlmProvider();
   if (mode === "local") {
@@ -112,7 +131,11 @@ export function getChartsEnabled(): boolean {
 }
 
 export function setChartsEnabled(enabled: boolean): void {
-  window.localStorage.setItem(CHARTS_ENABLED_KEY, enabled ? "true" : "false");
+  const val = enabled ? "true" : "false";
+  window.localStorage.setItem(CHARTS_ENABLED_KEY, val);
+  void settingsSet(CHARTS_ENABLED_KEY, val).catch((err) => {
+    console.error("Failed to persist charts enabled in SQLite:", err);
+  });
   window.dispatchEvent(new CustomEvent("mindvault:llm-settings-changed"));
 }
 
@@ -122,7 +145,11 @@ export function getChatChartsEnabled(): boolean {
 }
 
 export function setChatChartsEnabled(enabled: boolean): void {
-  window.localStorage.setItem(CHAT_CHARTS_ENABLED_KEY, enabled ? "true" : "false");
+  const val = enabled ? "true" : "false";
+  window.localStorage.setItem(CHAT_CHARTS_ENABLED_KEY, val);
+  void settingsSet(CHAT_CHARTS_ENABLED_KEY, val).catch((err) => {
+    console.error("Failed to persist chat charts enabled in SQLite:", err);
+  });
   window.dispatchEvent(new CustomEvent("mindvault:llm-settings-changed"));
 }
 
@@ -132,7 +159,11 @@ export function getNodeEditorChartsEnabled(): boolean {
 }
 
 export function setNodeEditorChartsEnabled(enabled: boolean): void {
-  window.localStorage.setItem(NODE_EDITOR_CHARTS_ENABLED_KEY, enabled ? "true" : "false");
+  const val = enabled ? "true" : "false";
+  window.localStorage.setItem(NODE_EDITOR_CHARTS_ENABLED_KEY, val);
+  void settingsSet(NODE_EDITOR_CHARTS_ENABLED_KEY, val).catch((err) => {
+    console.error("Failed to persist node editor charts enabled in SQLite:", err);
+  });
   window.dispatchEvent(new CustomEvent("mindvault:llm-settings-changed"));
 }
 
@@ -172,5 +203,46 @@ export function setPlantUmlServer(url: string): void {
   }
 
   window.localStorage.setItem(PLANTUML_SERVER_KEY, normalized);
+  void settingsSet(PLANTUML_SERVER_KEY, normalized).catch((err) => {
+    console.error("Failed to persist PlantUML server in SQLite:", err);
+  });
   window.dispatchEvent(new CustomEvent("mindvault:llm-settings-changed"));
 }
+
+// Self-executing initialization block to restore all settings from the SQLite database into localStorage at startup.
+// This resolves issues where localStorage is cleared or flaky in Tauri.
+void (async () => {
+  const keys = [
+    LLM_PROVIDER_KEY,
+    LLM_MODE_KEY,
+    OLLAMA_ENDPOINT_KEY,
+    LMSTUDIO_ENDPOINT_KEY,
+    CHARTS_ENABLED_KEY,
+    CHAT_CHARTS_ENABLED_KEY,
+    NODE_EDITOR_CHARTS_ENABLED_KEY,
+    PLANTUML_SERVER_KEY,
+    "mindvault.llm.ollama.model",
+    "mindvault.llm.lmstudio.model",
+    "mindvault.llm.openai.model",
+    "mindvault.llm.anthropic.model",
+    "mindvault.llm.google.model",
+    "mindvault.llm.xai.model",
+  ];
+
+  try {
+    const promises = keys.map(async (key) => {
+      try {
+        const res = await settingsGet(key);
+        if (res && "ok" in res && res.ok !== null) {
+          window.localStorage.setItem(key, res.ok);
+        }
+      } catch (err) {
+        console.error(`Failed to load setting ${key} from SQLite:`, err);
+      }
+    });
+    await Promise.all(promises);
+    window.dispatchEvent(new CustomEvent("mindvault:llm-settings-changed"));
+  } catch (e) {
+    console.error("Failed to initialize settings from DB:", e);
+  }
+})();
