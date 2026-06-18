@@ -395,7 +395,8 @@ function ChatPanel({
       window.dispatchEvent(new CustomEvent("mindvault:chat-external-updated"));
     } catch (err) {
       console.error("Failed to toggle off-the-record:", err);
-      setIsOffTheRecord(!next); // rollback
+      setIsOffTheRecord(!next); // rollback frontend
+      void chatSetOffTheRecord(!next).catch(console.error); // rollback backend
     }
   }, [
     isOffTheRecord,

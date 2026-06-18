@@ -141,6 +141,9 @@ export default function ChatHistoryPanel({
       window.dispatchEvent(new CustomEvent("mindvault:chat-external-updated"));
     } catch (error) {
       console.error("Failed to rename session:", error);
+      window.alert(
+        `Failed to rename conversation: ${error instanceof Error ? error.message : String(error)}`
+      );
     } finally {
       setIsRenaming(false);
     }

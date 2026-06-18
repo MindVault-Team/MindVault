@@ -199,7 +199,7 @@ pub fn get_chat_history(
 
     let mut statement = db
         .prepare(
-            "SELECT id, role, content, created_at
+            "SELECT id, role, content, coalesce(created_at, datetime('now'))
              FROM session_messages
              WHERE session_id = ?1
              ORDER BY created_at ASC, rowid ASC;",
@@ -277,7 +277,7 @@ pub fn convert_temporary_to_memory(
     let rows: Vec<(String, String, String)> = {
         let mut stmt = sp
             .prepare(
-                "SELECT role, content, created_at FROM session_messages
+                "SELECT role, content, coalesce(created_at, datetime('now')) FROM session_messages
                  WHERE session_id = ?1
                  ORDER BY created_at ASC, rowid ASC;",
             )
@@ -340,7 +340,7 @@ pub struct ChatSession {
 pub fn list_sessions(db: &Connection) -> Result<Vec<ChatSession>, crate::AppError> {
     let mut statement = db
         .prepare(
-            "SELECT id, vault_id, started_at, summary
+            "SELECT id, vault_id, coalesce(started_at, datetime('now')), summary
              FROM sessions
              WHERE id != 'temporary-session'
              ORDER BY started_at DESC, rowid DESC;",
