@@ -91,11 +91,11 @@ mod tests {
         // Check quality tier fields
         assert_eq!(
             registry.tiers.quality.model_id,
-            "jinaai/jina-embeddings-v5-text-nano"
+            "microsoft/harrier-oss-v1-270m"
         );
-        assert_eq!(registry.tiers.quality.dims, 768);
-        assert_eq!(registry.tiers.quality.max_tokens, 8192);
-        assert_eq!(registry.tiers.quality.onnx_size_mb, 425);
+        assert_eq!(registry.tiers.quality.dims, 640);
+        assert_eq!(registry.tiers.quality.max_tokens, 32768);
+        assert_eq!(registry.tiers.quality.onnx_size_mb, 500);
         assert_eq!(registry.tiers.quality.chunk_target_tokens, vec![500, 800]);
         assert_eq!(registry.tiers.quality.chunk_overlap_tokens, vec![64, 80]);
         assert_eq!(
@@ -122,7 +122,7 @@ mod tests {
         assert_eq!(standard.dims, 768);
 
         let quality = tier_config("quality").ok_or("Quality tier config missing")?;
-        assert_eq!(quality.dims, 768);
+        assert_eq!(quality.dims, 640);
 
         let invalid = tier_config("invalid");
         assert!(invalid.is_none());

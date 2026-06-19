@@ -21,11 +21,11 @@
       "rules": { "ram_gb_range": [16, 31], "vram_gb_range": [8, 11] }
     },
     "quality": {
-      "model_id": "jinaai/jina-embeddings-v5-text-nano",
-      "params_m": 212,
-      "dims": 768,
-      "max_tokens": 8192,
-      "onnx_size_mb": 425,
+      "model_id": "microsoft/harrier-oss-v1-270m",
+      "params_m": 268,
+      "dims": 640,
+      "max_tokens": 32768,
+      "onnx_size_mb": 500,
       "chunk_target_tokens": [500, 800],
       "chunk_overlap_tokens": [64, 80],
       "fallback_model_id": "avsolatorio/GIST-Embedding-v0",
