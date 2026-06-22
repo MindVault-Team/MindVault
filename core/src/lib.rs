@@ -1044,20 +1044,17 @@ pub fn build_embedding_status(
     })
 }
 
-fn build_embed_engine_from_settings(
+fn build_embed_engine_from_config(
     conn: &Connection,
+    settings: &embed::EmbeddingSettings,
 ) -> Result<Box<dyn embed::EmbedEngine>, embed::EmbedError> {
-    let settings = embed::get_embedding_settings(conn).map_err(|err| {
-        embed::EmbedError::InferenceFailed(format!("embedding settings read failed: {err}"))
-    })?;
-
     match settings.backend.to_ascii_lowercase().as_str() {
         "onnx" => {
-            let config = embed::chunking_config_for_settings(&settings).map_err(|err| {
+            let config = embed::chunking_config_for_settings(settings).map_err(|err| {
                 embed::EmbedError::InferenceFailed(format!("embedding ONNX config failed: {err}"))
             })?;
             Ok(Box::new(embed::BundledEmbedEngine::new(
-                settings.model,
+                settings.model.clone(),
                 config.dims,
             )?))
         }
@@ -1078,7 +1075,7 @@ fn build_embed_engine_from_settings(
             })?;
             Ok(Box::new(embed::OllamaEmbedEngine::new(
                 endpoint,
-                settings.model,
+                settings.model.clone(),
                 registry.ollama_default.dims,
             )))
         }
@@ -1086,6 +1083,15 @@ fn build_embed_engine_from_settings(
             "unsupported embedding backend: {other}"
         ))),
     }
+}
+
+fn build_embed_engine_from_settings(
+    conn: &Connection,
+) -> Result<Box<dyn embed::EmbedEngine>, embed::EmbedError> {
+    let settings = embed::get_embedding_settings(conn).map_err(|err| {
+        embed::EmbedError::InferenceFailed(format!("embedding settings read failed: {err}"))
+    })?;
+    build_embed_engine_from_config(conn, &settings)
 }
 
 fn spawn_single_node_embedding(db_path: PathBuf, node_id: String) {
@@ -2176,6 +2182,16 @@ fn embedding_reembed_start(
         embed::validate_reembed_input(&payload)?;
 
         let mut conn = open_connection(&state.db_path)?;
+
+        let temp_settings = embed::EmbeddingSettings {
+            model: payload.model.trim().to_string(),
+            tier: payload.tier.trim().to_ascii_lowercase(),
+            backend: payload.backend.trim().to_ascii_lowercase(),
+            last_computed_at: None,
+        };
+        build_embed_engine_from_config(&conn, &temp_settings)
+            .map_err(|err| format!("Failed to initialize embedding engine: {err}"))?;
+
         let old_model_id = {
             let tx = conn
                 .transaction()
@@ -2185,9 +2201,6 @@ fn embedding_reembed_start(
             embed::set_embedding_model(&tx, payload.model.trim())?;
             embed::set_embedding_tier(&tx, &payload.tier.trim().to_ascii_lowercase())?;
             embed::set_embedding_backend(&tx, &payload.backend.trim().to_ascii_lowercase())?;
-
-            build_embed_engine_from_settings(&tx)
-                .map_err(|err| format!("Failed to initialize embedding engine: {err}"))?;
 
             tx.commit()
                 .map_err(|err| format!("Failed committing embedding settings: {err}"))?;
