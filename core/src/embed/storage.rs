@@ -19,7 +19,7 @@ pub fn serialize_f32_vec(vec: &[f32]) -> Vec<u8> {
 }
 
 pub fn deserialize_f32_vec(bytes: &[u8]) -> Result<Vec<f32>, String> {
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return Err(format!(
             "Invalid byte array length for f32 vector: expected multiple of 4, got {}",
             bytes.len()
