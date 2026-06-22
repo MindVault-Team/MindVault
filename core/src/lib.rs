@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -32,6 +33,14 @@ use ipc_types::{
 const DEFAULT_ASSEMBLER_MAX_TOKENS: usize = 8000;
 
 static MEMORY_AGENT_LIMITER: std::sync::OnceLock<
+    governor::RateLimiter<
+        governor::state::direct::NotKeyed,
+        governor::state::InMemoryState,
+        governor::clock::DefaultClock,
+    >,
+> = std::sync::OnceLock::new();
+
+static EMBEDDING_LIMITER: std::sync::OnceLock<
     governor::RateLimiter<
         governor::state::direct::NotKeyed,
         governor::state::InMemoryState,
@@ -702,6 +711,9 @@ fn run_seed_data(conn: &mut Connection) -> Result<(), String> {
     )
     .map_err(|err| format!("Failed inserting default settings: {err}"))?;
 
+    embed::seed_embedding_defaults(&tx)
+        .map_err(|err| format!("Failed inserting default embedding settings: {err}"))?;
+
     tx.execute(
         "INSERT OR IGNORE INTO vaults (id, name, icon, description, privacy_tier, priority_profile, sort_order, meta)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8);",
@@ -937,6 +949,8 @@ fn run_priority_refresh(db_path: &std::path::Path) -> Result<usize, String> {
 pub(crate) struct DbState {
     pub(crate) db_path: PathBuf,
     pub(crate) redacted_session_key: Mutex<Option<redacted::SessionKey>>,
+    #[allow(dead_code)]
+    pub(crate) embed_job: Mutex<Option<embed::EmbedJobHandle>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -970,7 +984,95 @@ pub fn check_rate_limit(key: &str) -> Result<(), String> {
             );
         }
     }
+    if key == "embedding" {
+        let limiter = EMBEDDING_LIMITER.get_or_init(|| {
+            let quota = match governor::Quota::with_period(std::time::Duration::from_secs(5)) {
+                Some(q) => q,
+                None => {
+                    let fallback_nonzero = std::num::NonZeroU32::MIN;
+                    governor::Quota::per_second(fallback_nonzero)
+                }
+            };
+            governor::RateLimiter::direct(quota)
+        });
+
+        if limiter.check().is_err() {
+            return Err(
+                "Rate limit exceeded for embedding operations. Please wait before starting another embedding job."
+                    .to_string(),
+            );
+        }
+    }
     Ok(())
+}
+
+fn build_embed_engine_from_settings(
+    conn: &Connection,
+) -> Result<Box<dyn embed::EmbedEngine>, embed::EmbedError> {
+    let settings = embed::get_embedding_settings(conn).map_err(|err| {
+        embed::EmbedError::InferenceFailed(format!("embedding settings read failed: {err}"))
+    })?;
+
+    match settings.backend.to_ascii_lowercase().as_str() {
+        "onnx" => {
+            let config = embed::chunking_config_for_settings(&settings).map_err(|err| {
+                embed::EmbedError::InferenceFailed(format!("embedding ONNX config failed: {err}"))
+            })?;
+            Ok(Box::new(embed::BundledEmbedEngine::new(
+                settings.model,
+                config.dims,
+            )?))
+        }
+        "ollama" => {
+            let registry = embed::load_registry().map_err(|err| {
+                embed::EmbedError::InferenceFailed(format!("embedding registry load failed: {err}"))
+            })?;
+            if settings.model != registry.ollama_default.model_id {
+                return Err(embed::EmbedError::InferenceFailed(format!(
+                    "embedding.model '{}' does not match Ollama default model '{}'",
+                    settings.model, registry.ollama_default.model_id
+                )));
+            }
+            let endpoint = embed::get_local_model_endpoint(conn).map_err(|err| {
+                embed::EmbedError::InferenceFailed(format!(
+                    "local model endpoint read failed: {err}"
+                ))
+            })?;
+            Ok(Box::new(embed::OllamaEmbedEngine::new(
+                endpoint,
+                settings.model,
+                registry.ollama_default.dims,
+            )))
+        }
+        other => Err(embed::EmbedError::InferenceFailed(format!(
+            "unsupported embedding backend: {other}"
+        ))),
+    }
+}
+
+fn spawn_single_node_embedding(db_path: PathBuf, node_id: String) {
+    tauri::async_runtime::spawn_blocking(move || {
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {
+                let conn = open_connection(&db_path)?;
+                let engine =
+                    build_embed_engine_from_settings(&conn).map_err(|err| err.to_string())?;
+                let cancel = AtomicBool::new(false);
+                embed::embed_node(&conn, &node_id, engine.as_ref(), &cancel)
+                    .map(|_| ())
+                    .map_err(|err| err.to_string())
+            }));
+
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                eprintln!("[embed] single-node embedding failed for {node_id}: {err}");
+            }
+            Err(_) => {
+                eprintln!("[embed] single-node embedding panicked for {node_id}");
+            }
+        }
+    });
 }
 
 pub fn is_node_private(conn: &Connection, node_id: &str) -> Result<bool, String> {
@@ -1317,6 +1419,7 @@ pub fn run() {
             app.manage(DbState {
                 db_path: db_path.clone(),
                 redacted_session_key: Mutex::new(None),
+                embed_job: Mutex::new(None),
             });
 
             let bg_path = db_path;
@@ -1722,6 +1825,7 @@ pub async fn test_helper_memory_extract_force(
     app.manage(AppState {
         db_path,
         redacted_session_key: std::sync::Mutex::new(None),
+        embed_job: std::sync::Mutex::new(None),
     });
     let state = app.state::<AppState>();
     memory_extract_force(provider, endpoint, model, state).await
@@ -2914,6 +3018,8 @@ fn node_create(input: NodeCreateInput, state: tauri::State<'_, DbState>) -> IpcR
         tx.commit()
             .map_err(|err| format!("Failed committing node_create: {err}"))?;
 
+        spawn_single_node_embedding(state.db_path.clone(), id.clone());
+
         fetch_node_by_id(&conn, &id, session_key)
             .and_then(|node| node.ok_or_else(|| "Node not found after insert".to_string()))
     })())
@@ -2950,6 +3056,10 @@ fn node_update(input: NodeUpdateInput, state: tauri::State<'_, DbState>) -> IpcR
         let current = fetch_node_by_id(&tx, &input.id, session_key)?
             .filter(|node| node.deleted_at.is_none())
             .ok_or_else(|| format!("Node not found: {}", input.id))?;
+
+        let current_title = current.title.clone();
+        let current_summary = current.summary.clone();
+        let current_detail = current.detail.clone();
 
         let next_vault_id = input.vault_id.unwrap_or(current.vault_id);
         let next_sub_vault_id = input.sub_vault_id.or(current.sub_vault_id);
@@ -2992,6 +3102,16 @@ fn node_update(input: NodeUpdateInput, state: tauri::State<'_, DbState>) -> IpcR
                 )
             })? > 0;
         ensure_encrypted_node_can_be_unredacted(current_is_encrypted, session_key, should_encrypt)?;
+        let needs_reembed = embed::stored_text_columns_changed(
+            &current_title,
+            &current_summary,
+            current_detail.as_deref(),
+            current_is_encrypted,
+            should_encrypt,
+            &next_title,
+            &next_summary,
+            next_detail.as_deref(),
+        );
         let encrypted_payload = if should_encrypt {
             let key = session_key.ok_or_else(|| {
                 "Unlock redacted content with your master password before saving.".to_string()
@@ -3072,6 +3192,10 @@ fn node_update(input: NodeUpdateInput, state: tauri::State<'_, DbState>) -> IpcR
 
         tx.commit()
             .map_err(|err| format!("Failed committing node_update: {err}"))?;
+
+        if needs_reembed {
+            spawn_single_node_embedding(state.db_path.clone(), input.id.clone());
+        }
 
         fetch_node_by_id(&conn, &input.id, session_key).and_then(|node| {
             node.filter(|n| n.deleted_at.is_none())
@@ -3809,5 +3933,14 @@ mod tests {
         assert_eq!(private_nodes.len(), 1001);
         assert!(private_nodes.contains("node_0"));
         assert!(private_nodes.contains("node_1000"));
+    }
+
+    #[test]
+    fn embedding_rate_limit_rejects_immediate_second_call() {
+        let first = super::check_rate_limit("embedding");
+        assert!(first.is_ok());
+
+        let second = super::check_rate_limit("embedding");
+        assert!(second.is_err());
     }
 }

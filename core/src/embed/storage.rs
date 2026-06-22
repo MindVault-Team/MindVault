@@ -165,8 +165,7 @@ pub fn count_coverage(conn: &Connection, model: &str) -> Result<(i64, i64), Stri
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+pub(crate) fn setup_test_db() -> Result<Connection, Box<dyn std::error::Error>> {
     use std::fs;
     use std::path::PathBuf;
 
@@ -177,83 +176,83 @@ mod tests {
             .join("migrations")
     }
 
-    fn setup_test_db() -> Result<Connection, Box<dyn std::error::Error>> {
-        let conn = Connection::open_in_memory()?;
-        conn.pragma_update(None, "foreign_keys", "ON")?;
+    let conn = Connection::open_in_memory()?;
+    conn.pragma_update(None, "foreign_keys", "ON")?;
 
-        // Create schema_migrations table first
-        conn.execute_batch(
-            r#"
-            CREATE TABLE IF NOT EXISTS schema_migrations (
-                version INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-            );
-            "#,
-        )?;
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        "#,
+    )?;
 
-        // Load and apply migrations
-        let dir = migrations_dir();
-        if !dir.exists() {
-            return Err(format!("migrations directory does not exist: {}", dir.display()).into());
-        }
-
-        let entries = fs::read_dir(&dir)?;
-        let mut migrations = Vec::new();
-
-        for entry in entries {
-            let entry = entry?;
-            let path = entry.path();
-            let file_name = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .ok_or_else(|| format!("failed to get file name for path: {}", path.display()))?;
-
-            if !file_name.ends_with(".sql") {
-                continue;
-            }
-
-            let (version_text, name_rest) = file_name.split_once('_').ok_or_else(|| {
-                format!("migration file must follow '<version>_<name>.sql': {file_name}")
-            })?;
-
-            let version = version_text
-                .parse::<i64>()
-                .map_err(|_| format!("migration version must be numeric: {file_name}"))?;
-
-            let name = name_rest.trim_end_matches(".sql").to_string();
-            migrations.push((version, name, path));
-        }
-
-        migrations.sort_by_key(|migration| migration.0);
-
-        for (version, name, path) in migrations {
-            let sql = fs::read_to_string(&path)?;
-            conn.execute_batch(&sql)
-                .map_err(|err| format!("migration {version}_{name} failed: {err}"))?;
-        }
-
-        // Insert minimal vault & node fixtures
-        conn.execute(
-            "INSERT INTO vaults (id, name, icon, description, privacy_tier, priority_profile, sort_order, meta)
-             VALUES ('vault_test', 'Test Vault', 'vault', 'Fixture Vault', 'open', 'standard', 0, '{}');",
-            [],
-        )?;
-
-        conn.execute(
-            "INSERT INTO nodes (id, vault_id, node_type, title, summary, detail, source, source_type, priority, meta)
-             VALUES ('node_test_1', 'vault_test', 'concept', 'Test Node 1', 'Test summary', 'Test detail', 'test', 'manual', '{}', '{}');",
-            [],
-        )?;
-
-        conn.execute(
-            "INSERT INTO nodes (id, vault_id, node_type, title, summary, detail, source, source_type, priority, meta)
-             VALUES ('node_test_2', 'vault_test', 'concept', 'Test Node 2', 'Test summary 2', 'Test detail 2', 'test', 'manual', '{}', '{}');",
-            [],
-        )?;
-
-        Ok(conn)
+    let dir = migrations_dir();
+    if !dir.exists() {
+        return Err(format!("migrations directory does not exist: {}", dir.display()).into());
     }
+
+    let entries = fs::read_dir(&dir)?;
+    let mut migrations = Vec::new();
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| format!("failed to get file name for path: {}", path.display()))?;
+
+        if !file_name.ends_with(".sql") {
+            continue;
+        }
+
+        let (version_text, name_rest) = file_name.split_once('_').ok_or_else(|| {
+            format!("migration file must follow '<version>_<name>.sql': {file_name}")
+        })?;
+
+        let version = version_text
+            .parse::<i64>()
+            .map_err(|_| format!("migration version must be numeric: {file_name}"))?;
+
+        let name = name_rest.trim_end_matches(".sql").to_string();
+        migrations.push((version, name, path));
+    }
+
+    migrations.sort_by_key(|migration| migration.0);
+
+    for (version, name, path) in migrations {
+        let sql = fs::read_to_string(&path)?;
+        conn.execute_batch(&sql)
+            .map_err(|err| format!("migration {version}_{name} failed: {err}"))?;
+    }
+
+    conn.execute(
+        "INSERT INTO vaults (id, name, icon, description, privacy_tier, priority_profile, sort_order, meta)
+         VALUES ('vault_test', 'Test Vault', 'vault', 'Fixture Vault', 'open', 'standard', 0, '{}');",
+        [],
+    )?;
+
+    conn.execute(
+        "INSERT INTO nodes (id, vault_id, node_type, title, summary, detail, source, source_type, priority, meta)
+         VALUES ('node_test_1', 'vault_test', 'concept', 'Test Node 1', 'Test summary', 'Test detail', 'test', 'manual', '{}', '{}');",
+        [],
+    )?;
+
+    conn.execute(
+        "INSERT INTO nodes (id, vault_id, node_type, title, summary, detail, source, source_type, priority, meta)
+         VALUES ('node_test_2', 'vault_test', 'concept', 'Test Node 2', 'Test summary 2', 'Test detail 2', 'test', 'manual', '{}', '{}');",
+        [],
+    )?;
+
+    Ok(conn)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
 
     #[test]
     fn test_f32_serialization_validation() -> Result<(), Box<dyn std::error::Error>> {
