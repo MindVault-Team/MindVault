@@ -10,14 +10,16 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
     if a.is_empty() || b.is_empty() || a.len() != b.len() {
         return 0.0;
     }
-    let mut dot_product = 0.0;
-    let mut norm_a = 0.0;
-    let mut norm_b = 0.0;
+    let mut dot_product = 0.0f64;
+    let mut norm_a = 0.0f64;
+    let mut norm_b = 0.0f64;
 
     for (&x, &y) in a.iter().zip(b.iter()) {
-        dot_product += x * y;
-        norm_a += x * x;
-        norm_b += y * y;
+        let x_f64 = x as f64;
+        let y_f64 = y as f64;
+        dot_product += x_f64 * y_f64;
+        norm_a += x_f64 * x_f64;
+        norm_b += y_f64 * y_f64;
     }
 
     let norm_a = norm_a.sqrt();
@@ -32,7 +34,7 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
         return 0.0;
     }
 
-    (raw_score as f64).clamp(-1.0, 1.0)
+    raw_score.clamp(-1.0, 1.0)
 }
 
 /// Find the top N similar nodes using cosine similarity over their primary embeddings.
