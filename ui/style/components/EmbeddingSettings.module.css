@@ -1,0 +1,40 @@
+.embedding-settings-panel{
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+.embedding-settings-title{
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(27, 26, 23, 0.6);
+}
+.embedding-settings-item{
+  margin: 0;
+  font-size: 0.72rem;
+  color: rgba(27, 26, 23, 0.5);
+  text-align: center;
+}
+.embedding-settings-button{
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: rgba(27, 26, 23, 0.6);
+  font-weight: 500;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.embedding-settings-button:hover{
+  background: rgba(255, 255, 255, 0.4);
+  color: var(--primary-color);
+}
+.embedding-settings-button.active{
+  background: white;
+  color: var(--primary-color);
+  box-shadow: 0 2px 8px rgba(188, 108, 37, 0.15);
+}
