@@ -1080,7 +1080,7 @@ fn build_embed_engine_from_settings(
                 endpoint,
                 settings.model,
                 registry.ollama_default.dims,
-            )?))
+            )))
         }
         other => Err(embed::EmbedError::InferenceFailed(format!(
             "unsupported embedding backend: {other}"

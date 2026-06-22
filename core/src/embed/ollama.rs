@@ -10,30 +10,19 @@ pub struct OllamaEmbedEngine {
 }
 
 impl OllamaEmbedEngine {
-    pub fn new(
-        endpoint: impl Into<String>,
-        model_id: impl Into<String>,
-        dims: usize,
-    ) -> Result<Self, EmbedError> {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .map_err(|err| {
-                EmbedError::InferenceFailed(format!("failed to build HTTP client: {}", err))
-            })?;
-
-        Ok(Self {
+    pub fn new(endpoint: impl Into<String>, model_id: impl Into<String>, dims: usize) -> Self {
+        Self {
             endpoint: endpoint.into(),
             model_id: model_id.into(),
             dims,
-            client,
-        })
+            client: reqwest::Client::new(),
+        }
     }
 
     pub fn from_registry_defaults(
         endpoint: impl Into<String>,
         config: &OllamaDefaultConfig,
-    ) -> Result<Self, EmbedError> {
+    ) -> Self {
         Self::new(endpoint, config.model_id.clone(), config.dims)
     }
 }
@@ -66,6 +55,7 @@ impl EmbedEngine for OllamaEmbedEngine {
             let response = self
                 .client
                 .post(&url)
+                .timeout(Duration::from_secs(10))
                 .json(&payload)
                 .send()
                 .await
@@ -203,7 +193,7 @@ mod tests {
         let response_body = r#"{"embeddings":[[3.0,4.0]]}"#;
         let mock_url = spawn_mock_server(response_body, "/api/embed")?;
 
-        let engine = OllamaEmbedEngine::new(mock_url, "nomic-embed-text", 2)?;
+        let engine = OllamaEmbedEngine::new(mock_url, "nomic-embed-text", 2);
         let result = engine.embed(&["hello".to_string()])?;
 
         assert_eq!(result.len(), 1);
@@ -220,7 +210,7 @@ mod tests {
         let response_body = r#"{"embeddings":[[1.0, 0.0], [0.0, 1.0]]}"#;
         let mock_url = spawn_mock_server(response_body, "/api/embed")?;
 
-        let engine = OllamaEmbedEngine::new(mock_url, "nomic-embed-text", 2)?;
+        let engine = OllamaEmbedEngine::new(mock_url, "nomic-embed-text", 2);
         let result = engine.embed(&["hello".to_string()]);
 
         match result {
@@ -239,7 +229,7 @@ mod tests {
         let response_body = r#"{"embeddings":[[1.0, 0.0, 0.0]]}"#;
         let mock_url = spawn_mock_server(response_body, "/api/embed")?;
 
-        let engine = OllamaEmbedEngine::new(mock_url, "nomic-embed-text", 2)?;
+        let engine = OllamaEmbedEngine::new(mock_url, "nomic-embed-text", 2);
         let result = engine.embed(&["hello".to_string()]);
 
         match result {
@@ -260,7 +250,7 @@ mod tests {
             "/api/embed",
         )?;
 
-        let engine = OllamaEmbedEngine::new(mock_url, "some-invalid-model", 2)?;
+        let engine = OllamaEmbedEngine::new(mock_url, "some-invalid-model", 2);
         let result = engine.embed(&["hello".to_string()]);
 
         match result {
@@ -277,7 +267,7 @@ mod tests {
     #[test]
     fn test_ollama_unreachable() -> Result<(), Box<dyn std::error::Error>> {
         // Use an invalid port/address
-        let engine = OllamaEmbedEngine::new("http://127.0.0.1:9999", "nomic-embed-text", 768)?;
+        let engine = OllamaEmbedEngine::new("http://127.0.0.1:9999", "nomic-embed-text", 768);
         let result = engine.embed(&["hello".to_string()]);
 
         match result {
@@ -292,7 +282,7 @@ mod tests {
 
     #[test]
     fn test_ollama_embed_empty() -> Result<(), Box<dyn std::error::Error>> {
-        let engine = OllamaEmbedEngine::new("http://127.0.0.1:9999", "nomic-embed-text", 768)?;
+        let engine = OllamaEmbedEngine::new("http://127.0.0.1:9999", "nomic-embed-text", 768);
         let result = engine.embed(&[])?;
         assert!(result.is_empty());
         Ok(())
@@ -301,7 +291,7 @@ mod tests {
     #[test]
     #[ignore = "requires live local Ollama running 'nomic-embed-text' model at http://localhost:11434"]
     fn manual_ollama_live_test() -> Result<(), Box<dyn std::error::Error>> {
-        let engine = OllamaEmbedEngine::new("http://localhost:11434", "nomic-embed-text", 768)?;
+        let engine = OllamaEmbedEngine::new("http://localhost:11434", "nomic-embed-text", 768);
         let result = engine.embed(&[
             "Amber local RAG verification using Ollama".to_string(),
             "This test hits a live server".to_string(),
