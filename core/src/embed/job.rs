@@ -40,7 +40,7 @@ pub fn stored_text_columns_changed(
 }
 
 pub fn embed_node(
-    conn: &Connection,
+    conn: &mut Connection,
     node_id: &str,
     engine: &dyn EmbedEngine,
     cancel: &AtomicBool,
@@ -126,7 +126,7 @@ pub fn embed_node(
         });
     }
 
-    let tx = conn.unchecked_transaction().map_err(|err| {
+    let tx = conn.transaction().map_err(|err| {
         EmbedError::InferenceFailed(format!(
             "database failed starting embedding write transaction for node {node_id}: {err}"
         ))
@@ -153,7 +153,7 @@ pub fn embed_node(
 }
 
 pub fn embed_all_nodes(
-    conn: &Connection,
+    conn: &mut Connection,
     engine: &dyn EmbedEngine,
     cancel: &AtomicBool,
     old_model_id: Option<&str>,
@@ -309,11 +309,11 @@ mod tests {
 
     #[test]
     fn test_embed_node_writes_primary_and_detail() -> Result<(), Box<dyn std::error::Error>> {
-        let conn = setup_job_db()?;
+        let mut conn = setup_job_db()?;
         let engine = FakeEmbedEngine::new();
         let cancel = AtomicBool::new(false);
 
-        let embedded = embed_node(&conn, "node_test_1", &engine, &cancel)?;
+        let embedded = embed_node(&mut conn, "node_test_1", &engine, &cancel)?;
 
         assert!(embedded);
         let rows = get_embeddings_for_model(&conn, TEST_MODEL)?;
@@ -325,11 +325,11 @@ mod tests {
 
     #[test]
     fn test_embed_node_missing_returns_noop() -> Result<(), Box<dyn std::error::Error>> {
-        let conn = setup_job_db()?;
+        let mut conn = setup_job_db()?;
         let engine = FakeEmbedEngine::new();
         let cancel = AtomicBool::new(false);
 
-        let embedded = embed_node(&conn, "missing_node", &engine, &cancel)?;
+        let embedded = embed_node(&mut conn, "missing_node", &engine, &cancel)?;
 
         assert!(!embedded);
         assert_eq!(engine.calls(), 0);
@@ -339,7 +339,7 @@ mod tests {
     #[test]
     fn test_embed_node_replaces_stale_chunks_after_shrink() -> Result<(), Box<dyn std::error::Error>>
     {
-        let conn = setup_job_db()?;
+        let mut conn = setup_job_db()?;
         conn.execute(
             "UPDATE nodes SET detail = ?2 WHERE id = ?1;",
             params!["node_test_1", "This is a sentence. ".repeat(250)],
@@ -347,7 +347,7 @@ mod tests {
         let engine = FakeEmbedEngine::new();
         let cancel = AtomicBool::new(false);
 
-        let first = embed_node(&conn, "node_test_1", &engine, &cancel)?;
+        let first = embed_node(&mut conn, "node_test_1", &engine, &cancel)?;
         assert!(first);
         let first_rows = get_embeddings_for_model(&conn, TEST_MODEL)?;
         assert!(first_rows.len() > 2);
@@ -356,7 +356,7 @@ mod tests {
             "UPDATE nodes SET detail = NULL WHERE id = ?1;",
             ["node_test_1"],
         )?;
-        let second = embed_node(&conn, "node_test_1", &engine, &cancel)?;
+        let second = embed_node(&mut conn, "node_test_1", &engine, &cancel)?;
         assert!(second);
         let second_rows = get_embeddings_for_model(&conn, TEST_MODEL)?;
         assert_eq!(second_rows.len(), 1);
@@ -366,11 +366,11 @@ mod tests {
 
     #[test]
     fn test_embed_all_nodes_completed() -> Result<(), Box<dyn std::error::Error>> {
-        let conn = setup_job_db()?;
+        let mut conn = setup_job_db()?;
         let engine = FakeEmbedEngine::new();
         let cancel = AtomicBool::new(false);
 
-        let result = embed_all_nodes(&conn, &engine, &cancel, None);
+        let result = embed_all_nodes(&mut conn, &engine, &cancel, None);
 
         assert_eq!(result, EmbedJobResult::Completed { nodes_embedded: 2 });
         let rows = get_embeddings_for_model(&conn, TEST_MODEL)?;
@@ -380,7 +380,7 @@ mod tests {
 
     #[test]
     fn test_embed_all_nodes_skips_deleted() -> Result<(), Box<dyn std::error::Error>> {
-        let conn = setup_job_db()?;
+        let mut conn = setup_job_db()?;
         conn.execute(
             "UPDATE nodes SET deleted_at = datetime('now') WHERE id = ?1;",
             ["node_test_2"],
@@ -388,7 +388,7 @@ mod tests {
         let engine = FakeEmbedEngine::new();
         let cancel = AtomicBool::new(false);
 
-        let result = embed_all_nodes(&conn, &engine, &cancel, None);
+        let result = embed_all_nodes(&mut conn, &engine, &cancel, None);
 
         assert_eq!(result, EmbedJobResult::Completed { nodes_embedded: 1 });
         Ok(())
@@ -396,7 +396,7 @@ mod tests {
 
     #[test]
     fn test_embed_all_nodes_mid_batch_cancellation() -> Result<(), Box<dyn std::error::Error>> {
-        let conn = setup_job_db()?;
+        let mut conn = setup_job_db()?;
         conn.execute("UPDATE nodes SET detail = NULL;", [])?;
         let cancel = Arc::new(AtomicBool::new(false));
         let engine = FakeEmbedEngine {
@@ -405,7 +405,7 @@ mod tests {
             ..FakeEmbedEngine::new()
         };
 
-        let result = embed_all_nodes(&conn, &engine, &cancel, None);
+        let result = embed_all_nodes(&mut conn, &engine, &cancel, None);
 
         assert_eq!(result, EmbedJobResult::Cancelled);
         let rows = get_embeddings_for_model(&conn, TEST_MODEL)?;
@@ -415,7 +415,7 @@ mod tests {
 
     #[test]
     fn test_embed_node_chunk_level_cancellation() -> Result<(), Box<dyn std::error::Error>> {
-        let conn = setup_job_db()?;
+        let mut conn = setup_job_db()?;
         conn.execute(
             "UPDATE nodes SET detail = ?2 WHERE id = ?1;",
             params!["node_test_1", "This is a sentence. ".repeat(250)],
@@ -427,7 +427,7 @@ mod tests {
             ..FakeEmbedEngine::new()
         };
 
-        let result = embed_node(&conn, "node_test_1", &engine, &cancel);
+        let result = embed_node(&mut conn, "node_test_1", &engine, &cancel);
 
         assert!(matches!(result, Err(EmbedError::Cancelled)));
         let rows = get_embeddings_for_model(&conn, TEST_MODEL)?;
@@ -437,7 +437,7 @@ mod tests {
 
     #[test]
     fn test_old_model_deleted_before_reembed() -> Result<(), Box<dyn std::error::Error>> {
-        let conn = setup_job_db()?;
+        let mut conn = setup_job_db()?;
         upsert_embedding(
             &conn,
             &EmbeddingRow {
@@ -452,7 +452,7 @@ mod tests {
         let engine = FakeEmbedEngine::new();
         let cancel = AtomicBool::new(false);
 
-        let result = embed_all_nodes(&conn, &engine, &cancel, Some("old-model"));
+        let result = embed_all_nodes(&mut conn, &engine, &cancel, Some("old-model"));
 
         assert_eq!(result, EmbedJobResult::Completed { nodes_embedded: 2 });
         assert_eq!(get_embeddings_for_model(&conn, "old-model")?.len(), 0);
@@ -463,7 +463,7 @@ mod tests {
     #[test]
     fn test_same_model_reembed_none_preserves_unprocessed_rows_on_cancel(
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let conn = setup_job_db()?;
+        let mut conn = setup_job_db()?;
         conn.execute("UPDATE nodes SET detail = NULL;", [])?;
         for node_id in ["node_test_1", "node_test_2"] {
             upsert_embedding(
@@ -486,7 +486,7 @@ mod tests {
             ..FakeEmbedEngine::new()
         };
 
-        let result = embed_all_nodes(&conn, &engine, &cancel, None);
+        let result = embed_all_nodes(&mut conn, &engine, &cancel, None);
 
         assert_eq!(result, EmbedJobResult::Cancelled);
         let unprocessed = get_primary_embedding(&conn, "node_test_2", TEST_MODEL)?
@@ -498,7 +498,7 @@ mod tests {
     #[test]
     fn test_inference_failure_preserves_existing_embedding(
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let conn = setup_job_db()?;
+        let mut conn = setup_job_db()?;
         upsert_embedding(
             &conn,
             &EmbeddingRow {
@@ -516,7 +516,7 @@ mod tests {
         };
         let cancel = AtomicBool::new(false);
 
-        let result = embed_all_nodes(&conn, &engine, &cancel, None);
+        let result = embed_all_nodes(&mut conn, &engine, &cancel, None);
 
         assert!(matches!(result, EmbedJobResult::Failed(_)));
         let existing = get_primary_embedding(&conn, "node_test_1", TEST_MODEL)?
@@ -527,11 +527,11 @@ mod tests {
 
     #[test]
     fn test_embed_all_nodes_pre_cancelled() -> Result<(), Box<dyn std::error::Error>> {
-        let conn = setup_job_db()?;
+        let mut conn = setup_job_db()?;
         let engine = FakeEmbedEngine::new();
         let cancel = AtomicBool::new(true);
 
-        let result = embed_all_nodes(&conn, &engine, &cancel, None);
+        let result = embed_all_nodes(&mut conn, &engine, &cancel, None);
 
         assert_eq!(result, EmbedJobResult::Cancelled);
         assert_eq!(engine.calls(), 0);
@@ -540,20 +540,20 @@ mod tests {
 
     #[test]
     fn test_wrong_vector_count_and_dims_fail() -> Result<(), Box<dyn std::error::Error>> {
-        let conn = setup_job_db()?;
+        let mut conn = setup_job_db()?;
         let cancel = AtomicBool::new(false);
         let wrong_count = FakeEmbedEngine {
             wrong_count: true,
             ..FakeEmbedEngine::new()
         };
-        let count_result = embed_node(&conn, "node_test_1", &wrong_count, &cancel);
+        let count_result = embed_node(&mut conn, "node_test_1", &wrong_count, &cancel);
         assert!(matches!(count_result, Err(EmbedError::InferenceFailed(_))));
 
         let wrong_dims = FakeEmbedEngine {
             wrong_dims: true,
             ..FakeEmbedEngine::new()
         };
-        let dims_result = embed_node(&conn, "node_test_1", &wrong_dims, &cancel);
+        let dims_result = embed_node(&mut conn, "node_test_1", &wrong_dims, &cancel);
         assert!(matches!(dims_result, Err(EmbedError::InferenceFailed(_))));
         Ok(())
     }

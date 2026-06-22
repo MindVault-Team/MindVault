@@ -1092,11 +1092,11 @@ fn spawn_single_node_embedding(db_path: PathBuf, node_id: String) {
     tauri::async_runtime::spawn_blocking(move || {
         let result =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {
-                let conn = open_connection(&db_path)?;
+                let mut conn = open_connection(&db_path)?;
                 let engine =
                     build_embed_engine_from_settings(&conn).map_err(|err| err.to_string())?;
                 let cancel = AtomicBool::new(false);
-                embed::embed_node(&conn, &node_id, engine.as_ref(), &cancel)
+                embed::embed_node(&mut conn, &node_id, engine.as_ref(), &cancel)
                     .map(|_| ())
                     .map_err(|err| err.to_string())
             }));
@@ -2220,7 +2220,7 @@ fn embedding_reembed_start(
         let worker_new_model = payload.model.clone();
 
         tauri::async_runtime::spawn_blocking(move || {
-            let conn = match open_connection(&db_path) {
+            let mut conn = match open_connection(&db_path) {
                 Ok(conn) => conn,
                 Err(err) => {
                     eprintln!("[re-embed] Failed to open background connection: {err}");
@@ -2248,7 +2248,7 @@ fn embedding_reembed_start(
                 None
             };
             let result =
-                embed::embed_all_nodes(&conn, engine.as_ref(), &worker_cancel, old_model_arg);
+                embed::embed_all_nodes(&mut conn, engine.as_ref(), &worker_cancel, old_model_arg);
             match result {
                 embed::EmbedJobResult::Completed { nodes_embedded } => {
                     eprintln!("[re-embed] completed: embedded {nodes_embedded} node(s)");
