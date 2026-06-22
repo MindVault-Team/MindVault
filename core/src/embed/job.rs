@@ -2,7 +2,7 @@ use crate::embed::config;
 use crate::embed::storage::{
     delete_embeddings_for_model, delete_node_embeddings, upsert_embedding, EmbeddingRow,
 };
-use crate::embed::{chunk_node_text, EmbedEngine, EmbedError};
+use crate::embed::{chunk_node_text, EmbedEngine, EmbedError, TierConfig};
 use rusqlite::{Connection, OptionalExtension};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -39,10 +39,11 @@ pub fn stored_text_columns_changed(
     encryption_state_changed || content_changed
 }
 
-pub fn embed_node(
+pub fn embed_node_with_config(
     conn: &mut Connection,
     node_id: &str,
     engine: &dyn EmbedEngine,
+    chunk_config: &TierConfig,
     cancel: &AtomicBool,
 ) -> Result<bool, EmbedError> {
     if cancel.load(Ordering::Relaxed) {
@@ -73,13 +74,7 @@ pub fn embed_node(
         return Ok(false);
     };
 
-    let settings = config::get_embedding_settings(conn).map_err(|err| {
-        EmbedError::InferenceFailed(format!("embedding config read failed: {err}"))
-    })?;
-    let chunk_config = config::chunking_config_for_settings(&settings).map_err(|err| {
-        EmbedError::InferenceFailed(format!("embedding chunk config failed: {err}"))
-    })?;
-    let chunks = chunk_node_text(&title, &summary, detail.as_deref(), &chunk_config);
+    let chunks = chunk_node_text(&title, &summary, detail.as_deref(), chunk_config);
 
     let computed_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let mut rows = Vec::with_capacity(chunks.len());
@@ -152,6 +147,21 @@ pub fn embed_node(
     Ok(true)
 }
 
+pub fn embed_node(
+    conn: &mut Connection,
+    node_id: &str,
+    engine: &dyn EmbedEngine,
+    cancel: &AtomicBool,
+) -> Result<bool, EmbedError> {
+    let settings = config::get_embedding_settings(conn).map_err(|err| {
+        EmbedError::InferenceFailed(format!("embedding config read failed: {err}"))
+    })?;
+    let chunk_config = config::chunking_config_for_settings(&settings).map_err(|err| {
+        EmbedError::InferenceFailed(format!("embedding chunk config failed: {err}"))
+    })?;
+    embed_node_with_config(conn, node_id, engine, &chunk_config, cancel)
+}
+
 pub fn embed_all_nodes(
     conn: &mut Connection,
     engine: &dyn EmbedEngine,
@@ -161,6 +171,15 @@ pub fn embed_all_nodes(
     if cancel.load(Ordering::Relaxed) {
         return EmbedJobResult::Cancelled;
     }
+
+    let settings = match config::get_embedding_settings(conn) {
+        Ok(s) => s,
+        Err(err) => return EmbedJobResult::Failed(format!("embedding config read failed: {err}")),
+    };
+    let chunk_config = match config::chunking_config_for_settings(&settings) {
+        Ok(c) => c,
+        Err(err) => return EmbedJobResult::Failed(format!("embedding chunk config failed: {err}")),
+    };
 
     if let Some(model) = old_model_id.filter(|model| !model.trim().is_empty()) {
         if cancel.load(Ordering::Relaxed) {
@@ -195,7 +214,7 @@ pub fn embed_all_nodes(
             }
         }
 
-        match embed_node(conn, &node_id, engine, cancel) {
+        match embed_node_with_config(conn, &node_id, engine, &chunk_config, cancel) {
             Ok(true) => nodes_embedded += 1,
             Ok(false) => {}
             Err(EmbedError::Cancelled) => return EmbedJobResult::Cancelled,
