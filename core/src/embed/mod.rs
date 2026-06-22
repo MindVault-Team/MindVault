@@ -5,8 +5,11 @@ pub mod engine;
 pub mod job;
 pub mod ollama;
 pub mod registry;
+pub mod search;
 pub mod storage;
 pub mod tier_resolver;
+
+pub use search::{cosine_similarity, find_top_n_similar};
 
 pub use bundled::{model_artifact_paths, sanitize_model_id, BundledEmbedEngine};
 pub use chunking::{chunk_node_text, ChunkSpec};
