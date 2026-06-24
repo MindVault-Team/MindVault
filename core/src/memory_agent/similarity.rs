@@ -221,6 +221,9 @@ fn cosine_via_embed(
     existing_text: &str,
     engine: &dyn EmbedEngine,
 ) -> Option<f64> {
+    if candidate_text.trim().is_empty() || existing_text.trim().is_empty() {
+        return None;
+    }
     if candidate_text == existing_text {
         return Some(1.0);
     }
@@ -333,9 +336,14 @@ mod tests {
     #[test]
     fn test_empty_inputs() {
         let conn = setup_conn();
+        let engine = FakeEmbedEngine;
         assert!(compute_text_similarity(&conn, "", "test", None) < f64::EPSILON);
         assert!(compute_text_similarity(&conn, "test", "", None) < f64::EPSILON);
         assert!(compute_text_similarity(&conn, "", "", None) < f64::EPSILON);
+
+        assert!(compute_text_similarity(&conn, "", "test", Some(&engine)) < f64::EPSILON);
+        assert!(compute_text_similarity(&conn, "test", "", Some(&engine)) < f64::EPSILON);
+        assert!(compute_text_similarity(&conn, "", "", Some(&engine)) < f64::EPSILON);
     }
 
     #[test]
