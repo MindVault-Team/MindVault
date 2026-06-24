@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { parseSQLiteDate, parseJSON } from "./DiffPanel";
+import { parseSQLiteDate, parseJSON } from "../utils/parse";
 import {
   parsePriorityJson,
   getPriorityScore,
