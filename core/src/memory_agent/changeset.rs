@@ -124,20 +124,12 @@ fn combined_text(title: &str, summary: &str) -> String {
 
 fn best_match_via_embeddings(
     conn: &Connection,
-    candidate: &CandidateNode,
+    query_vector: &[f32],
+    model_id: &str,
     relevant_vaults: &HashSet<String>,
     has_context: bool,
-    engine: &dyn EmbedEngine,
 ) -> Result<Option<(DbNode, f64)>, String> {
-    let text = combined_text(&candidate.title, &candidate.summary);
-    let embeddings = engine
-        .embed(&[text])
-        .map_err(|err| format!("Failed to embed candidate for similarity search: {err}"))?;
-    let query_vector = embeddings
-        .first()
-        .ok_or_else(|| "Embedding engine returned no candidate vector".to_string())?;
-
-    let matches = find_top_n_similar(conn, query_vector, engine.model_id(), 50)?;
+    let matches = find_top_n_similar(conn, query_vector, model_id, 50)?;
     for (node_id, score) in matches {
         if let Some(node) = fetch_node_for_similarity(conn, &node_id)? {
             if !has_context || relevant_vaults.contains(&node.vault_id) {
@@ -257,16 +249,62 @@ pub fn build_changeset(
         Vec::new()
     };
 
+    // Pre-compute candidate embeddings if engine is Some
+    let mut candidate_vectors = Vec::new();
+    if let Some(eng) = engine {
+        let mut texts_to_embed = Vec::with_capacity(candidates.len());
+        candidate_vectors = vec![vec![0.0f32; eng.dims()]; candidates.len()];
+
+        for (idx, candidate) in candidates.iter().enumerate() {
+            let text = combined_text(&candidate.title, &candidate.summary);
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                texts_to_embed.push((idx, text));
+            } else {
+                if eng.dims() > 0 {
+                    candidate_vectors[idx][0] = 1.0;
+                }
+            }
+        }
+
+        if !texts_to_embed.is_empty() {
+            let raw_texts: Vec<String> = texts_to_embed.iter().map(|(_, t)| t.clone()).collect();
+            const BATCH_SIZE: usize = 32;
+            let mut embedded_count = 0;
+            for chunk in raw_texts.chunks(BATCH_SIZE) {
+                let vectors = eng.embed(chunk).map_err(|e| {
+                    format!(
+                        "Failed to generate bulk embeddings: {:?} (successfully embedded {} items)",
+                        e, embedded_count
+                    )
+                })?;
+                let chunk_start = embedded_count;
+                for (chunk_offset, vec) in vectors.into_iter().enumerate() {
+                    let candidate_idx = texts_to_embed[chunk_start + chunk_offset].0;
+                    candidate_vectors[candidate_idx] = vec;
+                }
+                embedded_count += chunk.len();
+            }
+        }
+    }
+
     let mut items = Vec::new();
 
-    for candidate in candidates {
+    for (idx, candidate) in candidates.iter().enumerate() {
         // Skip low-confidence candidates
         if candidate.confidence < 0.3 {
             continue;
         }
 
         let best_match: Option<(DbNode, f64)> = if let Some(eng) = engine {
-            best_match_via_embeddings(conn, candidate, &relevant_vault_filter, has_context, eng)?
+            let query_vector = &candidate_vectors[idx];
+            best_match_via_embeddings(
+                conn,
+                query_vector,
+                eng.model_id(),
+                &relevant_vault_filter,
+                has_context,
+            )?
         } else {
             // Pre-tokenize each candidate once (M tokenizations total across all candidates)
             let candidate_tokens = tokenize(&combined_text(&candidate.title, &candidate.summary));
