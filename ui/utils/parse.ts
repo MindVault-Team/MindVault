@@ -8,8 +8,12 @@ export function parseSQLiteDate(dateStr: string | null | undefined): Date {
 export function parseJSON(str: string | null | undefined): Record<string, unknown> {
   if (!str) return {};
   try {
-    return JSON.parse(str);
+    const parsed = JSON.parse(str);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
   } catch {
-    return {};
+    // ignore
   }
+  return {};
 }

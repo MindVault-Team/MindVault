@@ -84,6 +84,13 @@ describe("DiffPanel Pure Helpers", () => {
       const invalidJSON = '{"key": "value"'; // incomplete
       expect(parseJSON(invalidJSON)).toEqual({});
     });
+
+    it("returns empty object fallback for primitives and arrays", () => {
+      expect(parseJSON("null")).toEqual({});
+      expect(parseJSON("123")).toEqual({});
+      expect(parseJSON("true")).toEqual({});
+      expect(parseJSON('["item1", "item2"]')).toEqual({});
+    });
   });
 });
 
