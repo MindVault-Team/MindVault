@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getAllNodes,
@@ -16,7 +17,7 @@ import {
 } from "../utils/privacy";
 import PriorityBar from "./PriorityBar";
 
-function parsePriorityJson(priority: string): Record<string, unknown> {
+export function parsePriorityJson(priority: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(priority);
     if (typeof parsed === "object" && parsed !== null) {
@@ -28,7 +29,7 @@ function parsePriorityJson(priority: string): Record<string, unknown> {
   return {};
 }
 
-function getPriorityScore(node: Node): number {
+export function getPriorityScore(node: Node): number {
   const obj = parsePriorityJson(node.priority);
   if (typeof obj.score === "number" && Number.isFinite(obj.score)) {
     return obj.score;
@@ -36,7 +37,7 @@ function getPriorityScore(node: Node): number {
   return 1.0;
 }
 
-function getPriorityProfile(node: Node): string {
+export function getPriorityProfile(node: Node): string {
   const obj = parsePriorityJson(node.priority);
   if (typeof obj.profile === "string") {
     return obj.profile;
@@ -44,12 +45,12 @@ function getPriorityProfile(node: Node): string {
   return "standard";
 }
 
-function isFrozen(node: Node): boolean {
+export function isFrozen(node: Node): boolean {
   const obj = parsePriorityJson(node.priority);
   return obj.frozen === true;
 }
 
-function getAccessCount(node: Node, key: string): number {
+export function getAccessCount(node: Node, key: string): number {
   const obj = parsePriorityJson(node.priority);
   const val = obj[key];
   if (typeof val === "number" && Number.isFinite(val)) {

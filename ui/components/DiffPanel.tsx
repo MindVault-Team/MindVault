@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { useEffect, useState, useCallback, type MouseEvent as ReactMouseEvent } from "react";
 import {
   listPendingChangesets,
@@ -11,14 +12,14 @@ import DiffRow from "./DiffPanel/DiffRow";
 import "../style/components/DiffPanel.css";
 import "../style/components/DiffPanelActions.css";
 
-function parseSQLiteDate(dateStr: string | null | undefined): Date {
+export function parseSQLiteDate(dateStr: string | null | undefined): Date {
   if (!dateStr) return new Date();
   // If it doesn't contain 'T', replace space with 'T' and append 'Z' for UTC.
   const normalized = dateStr.includes("T") ? dateStr : dateStr.replace(" ", "T") + "Z";
   return new Date(normalized);
 }
 
-function parseJSON(str: string | null | undefined) {
+export function parseJSON(str: string | null | undefined) {
   if (!str) return {};
   try {
     return JSON.parse(str);

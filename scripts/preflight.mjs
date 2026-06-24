@@ -189,8 +189,12 @@ const steps = [
   { name: "banned patterns", cmd: runBannedPatterns },
   { name: "tsc (noEmit)", cmd: "npx tsc --noEmit" },
   {
-    name: "frontend utility tests",
-    cmd: "node --experimental-strip-types scripts/test-frontend.ts",
+    name: "frontend tests",
+    cmd: "npm run test:all",
+  },
+  {
+    name: "license check",
+    cmd: "npm run license-check",
   },
   {
     name: fix ? "cargo fmt" : "cargo fmt (check)",
