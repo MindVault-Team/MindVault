@@ -1928,15 +1928,15 @@ pub async fn execute_memory_extraction_pipeline(
         )?;
         id
     } else {
-        let tx = conn
-            .transaction()
-            .map_err(|err| format!("Failed to start transaction: {err}"))?;
         let pending_changeset = memory_agent::changeset::build_changeset(
-            &tx,
+            &conn,
             &candidates,
             "default-session",
             embed_engine.as_deref(),
         )?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("Failed to start transaction: {err}"))?;
         let persisted_id =
             memory_agent::persistence::persist_changeset(&tx, &pending_changeset, Some(&model))?;
         tx.commit()
