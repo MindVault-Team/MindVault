@@ -8,6 +8,8 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+const EMBEDDING_SEARCH_LIMIT: usize = 50;
+
 /// The type of action proposed by an individual item in a changeset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -103,7 +105,7 @@ fn best_match_via_embeddings(
         conn,
         query_vector,
         model_id,
-        50,
+        EMBEDDING_SEARCH_LIMIT,
         if has_context {
             Some(relevant_vaults)
         } else {
