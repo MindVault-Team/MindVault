@@ -128,17 +128,17 @@ pub fn amend_or_create_changeset(
     correction_signal: &crate::memory_agent::CorrectionSignal,
     engine: Option<&dyn EmbedEngine>,
 ) -> Result<(String, bool), String> {
-    let tx = conn
-        .transaction()
-        .map_err(|err| format!("Failed to start transaction: {err}"))?;
-
     // ── 1. Check for an existing pending changeset ────────────────────────────
-    let existing_changeset = find_pending_changeset(&tx, session_id, model)?;
+    let existing_changeset = find_pending_changeset(conn, session_id, model)?;
 
     // ── 2a. No pending changeset — create a fresh one ────────────────────────
     if existing_changeset.is_none() {
         let pending_changeset =
-            memory_agent::changeset::build_changeset(&tx, candidates, session_id, engine)?;
+            memory_agent::changeset::build_changeset(conn, candidates, session_id, engine)?;
+
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("Failed to start transaction: {err}"))?;
 
         let persisted_id =
             memory_agent::persistence::persist_changeset(&tx, &pending_changeset, Some(model))?;
@@ -154,7 +154,7 @@ pub fn amend_or_create_changeset(
         existing_changeset.ok_or_else(|| "Pending changeset unexpectedly missing".to_string())?;
 
     // Load existing items once; all comparisons run against this snapshot.
-    let pending_items = load_pending_items(&tx, &existing_id)?;
+    let pending_items = load_pending_items(conn, &existing_id)?;
 
     let mut amended_item_ids = std::collections::HashSet::new();
 
@@ -238,6 +238,10 @@ pub fn amend_or_create_changeset(
             }
         }
     }
+
+    let tx = conn
+        .transaction()
+        .map_err(|err| format!("Failed to start transaction: {err}"))?;
 
     for (idx, candidate) in candidates.iter().enumerate() {
         let mut candidate_data = candidate_datas[idx].clone();
