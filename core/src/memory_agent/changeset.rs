@@ -205,6 +205,53 @@ pub fn build_changeset(
         }
     }
 
+    if has_context && relevant_vaults.is_empty() {
+        let mut items = Vec::new();
+        for candidate in candidates {
+            if candidate.confidence < 0.3 {
+                continue;
+            }
+            if candidate.action == CandidateAction::Delete {
+                continue;
+            }
+            let resolved_vault_id = candidate
+                .target_vault_key
+                .as_deref()
+                .and_then(crate::onboarding::vault_id_for_category_key)
+                .unwrap_or("vault_root_graph")
+                .to_string();
+
+            let proposed = ProposedNodeData {
+                title: candidate.title.clone(),
+                summary: candidate.summary.clone(),
+                detail: candidate.detail.clone(),
+                node_type: candidate.node_type.clone(),
+                target_vault_key: candidate.target_vault_key.clone(),
+                vault_id: Some(resolved_vault_id),
+                tags: candidate.tags.clone(),
+                confidence: candidate.confidence,
+                action: candidate.action,
+                substantial_change: None,
+            };
+            let proposed_str = serde_json::to_string(&proposed)
+                .map_err(|err| format!("Failed to serialize proposed new data: {err}"))?;
+
+            items.push(PendingChangesetItem {
+                item_type: ChangesetItemType::Add,
+                target_node_id: None,
+                proposed_data: proposed_str,
+                existing_data: None,
+                similarity: None,
+                merge_with_id: None,
+            });
+        }
+        return Ok(PendingChangeset {
+            session_id: session_id.to_string(),
+            model_used: None,
+            items,
+        });
+    }
+
     // 3. Construct parameterized query to only fetch nodes in the relevant vaults
     let relevant_vault_filter = relevant_vaults.clone();
     let (query_str, params) = if !has_context {
@@ -1165,5 +1212,25 @@ mod tests {
         assert_eq!(cs_p.items.len(), 1);
         assert_eq!(cs_p.items[0].item_type, ChangesetItemType::Add);
         assert_eq!(cs_p.items[0].target_node_id, None);
+    }
+
+    #[test]
+    fn test_build_changeset_with_empty_vaults() {
+        let conn = setup_test_db();
+        // Test that calling build_changeset with no sessions and some candidates works fine and maps to Add.
+        let candidates = vec![CandidateNode {
+            title: "Standalone Fact".to_string(),
+            summary: "This is a fact about systems programming".to_string(),
+            detail: None,
+            node_type: Some("fact".to_string()),
+            target_vault_key: None,
+            tags: None,
+            confidence: 0.8,
+            action: CandidateAction::Add,
+        }];
+
+        let cs = build_changeset(&conn, &candidates, "session_empty", None).unwrap();
+        assert_eq!(cs.items.len(), 1);
+        assert_eq!(cs.items[0].item_type, ChangesetItemType::Add);
     }
 }
