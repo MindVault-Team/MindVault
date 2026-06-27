@@ -254,8 +254,13 @@ fn test_model_migration_invalidates_old_vectors() -> Result<(), Box<dyn std::err
 
     let engine = MockEngine;
     let cancel = std::sync::atomic::AtomicBool::new(false);
-    let _result =
-        mindvault_lib::embed::job::embed_all_nodes(&mut conn, &engine, &cancel, Some("old-model"));
+    mindvault_lib::embed::job::embed_all_nodes(
+        &mut conn,
+        &engine,
+        &cancel,
+        Some("old-model"),
+        false,
+    );
 
     let old_rows = mindvault_lib::embed::storage::get_embeddings_for_model(&conn, "old-model")?;
     assert!(old_rows.is_empty());
@@ -315,7 +320,8 @@ fn test_reembed_cancel() -> Result<(), Box<dyn std::error::Error>> {
     let engine = MockCancelEngine {
         cancel: cancel.clone(),
     };
-    let result = mindvault_lib::embed::job::embed_all_nodes(&mut conn, &engine, &cancel, None);
+    let result =
+        mindvault_lib::embed::job::embed_all_nodes(&mut conn, &engine, &cancel, None, false);
 
     assert!(matches!(
         result,
@@ -376,6 +382,91 @@ fn test_invalidation_trigger_on_title_change() -> Result<(), Box<dyn std::error:
         "avsolatorio/GIST-small-Embedding-v0",
     )?;
     assert!(opt_after.is_none());
+
+    let _remove_result = fs::remove_file(db_path);
+    Ok(())
+}
+
+#[test]
+fn test_settings_set_validation_and_auto_align() -> Result<(), Box<dyn std::error::Error>> {
+    let db_path = unique_db_path("settings_set_val")?;
+    mindvault_lib::test_helper_init_embedding_db(db_path.clone())?;
+
+    // 1. Validate local_model_endpoint
+    let res = mindvault_lib::test_helper_settings_set(
+        db_path.clone(),
+        "local_model_endpoint".to_string(),
+        "\"not-a-valid-url\"".to_string(),
+    );
+    match res {
+        Err(err) => assert!(err.contains("Invalid local_model_endpoint URL")),
+        Ok(_) => panic!("Expected settings_set to fail for invalid URL"),
+    }
+
+    let res = mindvault_lib::test_helper_settings_set(
+        db_path.clone(),
+        "local_model_endpoint".to_string(),
+        "\"ftp://localhost\"".to_string(),
+    );
+    match res {
+        Err(err) => assert!(err.contains("local_model_endpoint must be an HTTP or HTTPS URL")),
+        Ok(_) => panic!("Expected settings_set to fail for non-HTTP URL"),
+    }
+
+    let res = mindvault_lib::test_helper_settings_set(
+        db_path.clone(),
+        "local_model_endpoint".to_string(),
+        "\"http://localhost:11434\"".to_string(),
+    );
+    assert!(res.is_ok());
+
+    // 2. Validate embedding.backend
+    let res = mindvault_lib::test_helper_settings_set(
+        db_path.clone(),
+        "embedding.backend".to_string(),
+        "\"invalid-backend\"".to_string(),
+    );
+    match res {
+        Err(err) => assert!(err.contains("Unsupported embedding backend")),
+        Ok(_) => panic!("Expected settings_set to fail for invalid backend"),
+    }
+
+    // Switch to ollama. It should auto-align model to nomic-embed-text.
+    let res = mindvault_lib::test_helper_settings_set(
+        db_path.clone(),
+        "embedding.backend".to_string(),
+        "\"ollama\"".to_string(),
+    );
+    assert!(res.is_ok());
+
+    // Check that model was auto-aligned to nomic-embed-text
+    let conn = rusqlite::Connection::open(&db_path)?;
+    let settings = mindvault_lib::embed::get_embedding_settings(&conn)?;
+    assert_eq!(settings.backend, "ollama");
+    assert_eq!(settings.model, "nomic-embed-text");
+
+    // Try setting model to something else while backend is ollama. It should fail.
+    let res = mindvault_lib::test_helper_settings_set(
+        db_path.clone(),
+        "embedding.model".to_string(),
+        "\"avsolatorio/GIST-small-Embedding-v0\"".to_string(),
+    );
+    match res {
+        Err(err) => assert!(err.contains("is not valid for Ollama")),
+        Ok(_) => panic!("Expected settings_set to fail for model backend mismatch"),
+    }
+
+    // Switch back to onnx. It should auto-align model to the light tier model.
+    let res = mindvault_lib::test_helper_settings_set(
+        db_path.clone(),
+        "embedding.backend".to_string(),
+        "\"onnx\"".to_string(),
+    );
+    assert!(res.is_ok());
+
+    let settings = mindvault_lib::embed::get_embedding_settings(&conn)?;
+    assert_eq!(settings.backend, "onnx");
+    assert_eq!(settings.model, "avsolatorio/GIST-small-Embedding-v0");
 
     let _remove_result = fs::remove_file(db_path);
     Ok(())
