@@ -115,12 +115,14 @@ pub fn embed_node_with_config(
         EmbedError::InferenceFailed(format!("failed to resolve effective privacy: {err}"))
     })?;
 
-    if effective_tier == "redacted" {
+    if crate::privacy::embedding_should_skip(&effective_tier) {
         let _ = delete_node_embeddings(conn, node_id);
         return Ok(false);
     }
 
-    if effective_tier == "local_only" && settings.backend.eq_ignore_ascii_case("ollama") {
+    if settings.backend.eq_ignore_ascii_case("ollama")
+        && crate::privacy::embedding_blocks_on_remote_ollama(&effective_tier)
+    {
         let endpoint = config::get_local_model_endpoint(conn).map_err(|err| {
             EmbedError::InferenceFailed(format!("failed to read local model endpoint: {err}"))
         })?;
@@ -130,7 +132,7 @@ pub fn embed_node_with_config(
         }
     }
 
-    if effective_tier == "locked" {
+    if crate::privacy::embedding_uses_stub(&effective_tier) {
         let stub = crate::privacy::generate_pointer_stub(&title, node_id);
         title = stub;
         summary = String::new();
