@@ -16,3 +16,4 @@
 @import "./components/LatexBlock.css";
 @import "./components/ChatHistoryPanel.css";
 @import "./components/EmbeddingSettings.module.css";
+@import "./components/ModelSetupPanel.module.css";

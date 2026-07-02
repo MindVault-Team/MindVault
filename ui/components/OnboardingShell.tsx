@@ -3,6 +3,7 @@ import type { OnboardingNodeCommitInput, OnboardingProposedNode } from "../ipc";
 import { onboardingCommit, onboardingExtractProposals } from "../ipc";
 import { unwrapIpcResult } from "../services/ipcResult";
 import { getLlmModels } from "../services/nodes";
+import ModelSetupPanel from "./ModelSetupPanel";
 import { listVaults } from "../services/vaults";
 import { setSetting } from "../services/settings";
 import {
@@ -12,8 +13,6 @@ import {
   getOllamaEndpoint,
   setLlmModel,
   setLlmProvider,
-  setLmStudioEndpoint,
-  setOllamaEndpoint,
 } from "../utils/settings";
 
 type OnboardingShellProps = {
@@ -261,19 +260,6 @@ function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingS
     }
   }
 
-  function saveLlmSettings() {
-    setLlmProvider(provider);
-    if (provider === "ollama") {
-      setOllamaEndpoint(ollamaEndpoint);
-      setOllamaEndpointState(getOllamaEndpoint());
-      setStatusMessage({ text: "Saved Ollama settings.", kind: "info" });
-    } else {
-      setLmStudioEndpoint(lmStudioEndpoint);
-      setLmStudioEndpointState(getLmStudioEndpoint());
-      setStatusMessage({ text: "Saved LM Studio settings.", kind: "info" });
-    }
-  }
-
   async function runExtractionOnce() {
     if (!canRunExtraction) {
       setStatusMessage({ text: "Configure endpoint + model before extraction.", kind: "error" });
@@ -490,92 +476,94 @@ function OnboardingShell({ onComplete, onSkip, busy, errorMessage }: OnboardingS
           ) : null}
           {currentStep === 1 ? (
             <div className="onboarding-llm-grid">
-              <div className="provider-toggle" role="radiogroup" aria-label="LLM provider">
-                <label>
+              <ModelSetupPanel variant="onboarding" onStackSelected={() => void goNext()} />
+              <details className="onboarding-advanced-details">
+                <summary>Advanced LLM settings</summary>
+                <div className="provider-toggle" role="radiogroup" aria-label="LLM provider">
+                  <label>
+                    <input
+                      type="radio"
+                      name="onboarding-llm-provider"
+                      checked={provider === "ollama"}
+                      onChange={() => setProvider("ollama")}
+                      disabled={shellBusy}
+                    />
+                    Ollama
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="onboarding-llm-provider"
+                      checked={provider === "lmstudio"}
+                      onChange={() => setProvider("lmstudio")}
+                      disabled={shellBusy}
+                    />
+                    LM Studio
+                  </label>
+                </div>
+                <label className="onboarding-field">
+                  <span>Endpoint URL</span>
                   <input
-                    type="radio"
-                    name="onboarding-llm-provider"
-                    checked={provider === "ollama"}
-                    onChange={() => setProvider("ollama")}
-                    disabled={shellBusy}
-                  />
-                  Ollama
-                </label>
-                <label>
-                  <input
-                    type="radio"
-                    name="onboarding-llm-provider"
-                    checked={provider === "lmstudio"}
-                    onChange={() => setProvider("lmstudio")}
-                    disabled={shellBusy}
-                  />
-                  LM Studio
-                </label>
-              </div>
-              <label className="onboarding-field">
-                <span>Endpoint URL</span>
-                <input
-                  type="text"
-                  value={endpoint}
-                  onChange={(event) => {
-                    const nextValue = event.target.value;
-                    if (provider === "ollama") {
-                      setOllamaEndpointState(nextValue);
-                    } else {
-                      setLmStudioEndpointState(nextValue);
+                    type="text"
+                    value={endpoint}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      if (provider === "ollama") {
+                        setOllamaEndpointState(next);
+                      } else {
+                        setLmStudioEndpointState(next);
+                      }
+                      setHasExtracted(false);
+                      setExtractionFailed(false);
+                    }}
+                    placeholder={
+                      provider === "ollama" ? "http://localhost:11434" : "http://localhost:1234"
                     }
-                    setHasExtracted(false);
-                    setExtractionFailed(false);
-                    setModels([]);
-                    setStatusMessage(null);
-                    setSelectedModel("");
-                  }}
-                  placeholder={
-                    provider === "ollama" ? "http://localhost:11434" : "http://localhost:1234"
-                  }
-                  disabled={shellBusy}
-                />
-              </label>
-              <div className="onboarding-inline-actions">
+                    disabled={shellBusy}
+                  />
+                </label>
+                <label className="onboarding-field">
+                  <span>Model</span>
+                  <input
+                    type="text"
+                    value={selectedModel}
+                    onChange={(event) => setSelectedModel(event.target.value)}
+                    placeholder="Choose a model name"
+                    disabled={shellBusy}
+                  />
+                </label>
                 <button
                   type="button"
-                  className="onboarding-inline-button"
+                  className="onboarding-primary"
                   onClick={() => void testConnectionAndFetchModels()}
                   disabled={shellBusy}
                 >
-                  {llmBusy ? "Testing..." : "Test Connection & Fetch Models"}
+                  {llmBusy ? "Testing connection…" : "Test connection & fetch models"}
                 </button>
-                <button
-                  type="button"
-                  className="onboarding-inline-button"
-                  onClick={saveLlmSettings}
-                  disabled={shellBusy}
-                >
-                  Save LLM Settings
-                </button>
-              </div>
-              <label className="onboarding-field">
-                <span>Model</span>
-                <select
-                  value={selectedModel}
-                  onChange={(event) => setSelectedModel(event.target.value)}
-                  disabled={shellBusy}
-                >
-                  <option value="">
-                    {models.length === 0
-                      ? "Use saved model or fetch available models"
-                      : "Select model"}
-                  </option>
-                  {selectedModel && !models.includes(selectedModel) ? (
-                    <option value={selectedModel}>{selectedModel} (Saved)</option>
-                  ) : null}
-                  {models.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                {models.length > 0 ? (
+                  <div className="onboarding-model-results" aria-label="Available models">
+                    {models.map((model) => (
+                      <button
+                        type="button"
+                        key={model}
+                        className={model === selectedModel ? "active" : ""}
+                        onClick={() => setSelectedModel(model)}
+                        disabled={shellBusy}
+                      >
+                        {model}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {statusMessage ? (
+                  <p
+                    className={`onboarding-status ${statusMessage.kind}`}
+                    role={statusMessage.kind === "error" ? "alert" : "status"}
+                  >
+                    {statusMessage.text}
+                  </p>
+                ) : null}
+              </details>
             </div>
           ) : null}
           {currentStep === REVIEW_STEP_INDEX ? (

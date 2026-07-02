@@ -44,6 +44,7 @@ import { useUIStore } from "../utils/store";
 import { chatConvertTemporaryToMemory } from "../ipc";
 
 // Memoized individual message bubble — prevents re-rendering existing messages
+import { ModelSetupPanelPreview } from "./ModelSetupPanel";
 // when unrelated parent state (e.g. input text) changes. Each bubble only
 // re-renders when its own content, editing state, or copy state changes.
 type ChatMessageBubbleProps = {
@@ -376,6 +377,7 @@ function ChatPanel({
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState("");
   const [existingNodeIds, setExistingNodeIds] = useState<Set<string> | null>(null);
+  const [showModelSetupPreview, setShowModelSetupPreview] = useState(false);
 
   const sessionId = isOffTheRecord ? "temporary-session" : activeSessionId || "default-session";
 
@@ -926,6 +928,32 @@ function ChatPanel({
     }
   }
 
+  const previewToggleButton = (
+    <button
+      type="button"
+      className="chat-action-btn"
+      onClick={() => setShowModelSetupPreview((current) => !current)}
+      title={showModelSetupPreview ? "Return to chat" : "Show model setup preview"}
+    >
+      {showModelSetupPreview ? "Back to chat" : "Model setup preview"}
+    </button>
+  );
+
+  if (showModelSetupPreview) {
+    return (
+      <section className="chat-panel chat-active">
+        <div className="chat-thread">
+          <div className="chat-messages-container">
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "12px" }}>
+              {previewToggleButton}
+            </div>
+            <ModelSetupPanelPreview />
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   if (messages.length === 0) {
     return (
       <section className="chat-panel zen-dashboard">
@@ -1217,6 +1245,9 @@ function ChatPanel({
   return (
     <section className="chat-panel chat-active">
       <div className="chat-thread">
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "12px" }}>
+          {previewToggleButton}
+        </div>
         {hiddenMessageCount > 0 ? (
           <p className="chat-history-trim-note">
             Showing latest {visibleMessages.length} messages ({hiddenMessageCount} older hidden for
